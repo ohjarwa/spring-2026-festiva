@@ -1,0 +1,16 @@
+
+{
+  "mcpServers": {
+    "2026-ths-春节活动 - API 文档": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "apifox-mcp-server@latest",
+        "--project-id=7797773"
+      ],
+      "env": {
+        "APIFOX_ACCESS_TOKEN": "afxp_fc26cdu1Kr32lgGQMs0vZhBiGnsCCZxOabdx"
+      }
+    }
+  }
+}

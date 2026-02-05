@@ -165,7 +165,7 @@ public class Template1to4Processor implements ITemplateProcessor {
                     recordId,
                     "voice_clone",
                     () -> voiceCloneService.cloneVoice(request),
-                    60  // 等待60秒
+                    120  // 等待60秒
             );
 
             return (String) result.get("voiceId");
@@ -190,7 +190,7 @@ public class Template1to4Processor implements ITemplateProcessor {
                     recordId,
                     "voice_tts",
                     () -> voiceTtsService.synthesizeVoice(request),
-                    60  // 等待60秒
+                    120  // 等待60秒
             );
 
             return (String) result.get("audioUrl");

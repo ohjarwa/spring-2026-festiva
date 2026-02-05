@@ -6,7 +6,8 @@ import org.example.newyear.common.BusinessCode;
 import org.example.newyear.common.Constants;
 import org.example.newyear.entity.Spring2026User;
 import org.example.newyear.exception.BusinessException;
-import org.example.newyear.util.OssUtil;
+import org.example.newyear.service.oss.OssService;
+import org.example.newyear.service.oss.OssUploadResult;
 import org.example.newyear.vo.UploadResultVO;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -27,7 +28,7 @@ import java.util.UUID;
 public class UploadService {
 
     private final UserService userService;
-    private final OssUtil ossUtil;
+    private final OssService ossService;
 
     /**
      * 上传图片
@@ -60,15 +61,15 @@ public class UploadService {
 
         // 4. 上传到OSS
         try {
-            String objectKey = generateObjectKey(userId, "image", extension);
-            String url = ossUtil.uploadFile(file, objectKey);
+            // 使用 ossService，传入用户ID作为路径前缀
+            OssUploadResult result = ossService.upload(file, userId + "/image");
 
             UploadResultVO vo = new UploadResultVO();
-            vo.setUrl(url);
+            vo.setUrl(result.getAccessUrl());
             vo.setName(originalFilename);
             vo.setSize(file.getSize());
 
-            log.info("上传图片成功: userId={}, url={}", userId, url);
+            log.info("上传图片成功: userId={}, url={}", userId, result.getAccessUrl());
             return vo;
 
         } catch (Exception e) {
@@ -108,32 +109,21 @@ public class UploadService {
 
         // 4. 上传到OSS
         try {
-            String objectKey = generateObjectKey(userId, "audio", extension);
-            String url = ossUtil.uploadFile(file, objectKey);
+            // 使用 ossService，传入用户ID作为路径前缀
+            OssUploadResult result = ossService.upload(file, userId + "/audio");
 
             UploadResultVO vo = new UploadResultVO();
-            vo.setUrl(url);
+            vo.setUrl(result.getAccessUrl());
             vo.setName(originalFilename);
             vo.setSize(file.getSize());
 
-            log.info("上传音频成功: userId={}, url={}", userId, url);
+            log.info("上传音频成功: userId={}, url={}", userId, result.getAccessUrl());
             return vo;
 
         } catch (Exception e) {
             log.error("上传音频失败: userId={}", userId, e);
             throw new BusinessException(BusinessCode.ERROR_FILE_UPLOAD_FAILED, "上传音频失败");
         }
-    }
-
-    /**
-     * 生成OSS对象Key
-     */
-    private String generateObjectKey(String userId, String type, String extension) {
-        return String.format("spring2026/%s/%s/%s%s",
-                userId,
-                type,
-                UUID.randomUUID().toString().replace("-", ""),
-                extension);
     }
 
     /**

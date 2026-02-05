@@ -1,0 +1,73 @@
+# 本地配置示例文件
+#
+# 使用说明：
+# 1. 复制此文件为 application-local.yml
+# 2. 填写真实的配置信息
+# 3. application-local.yml 已被 .gitignore 忽略，不会提交到Git
+#
+# 或者使用环境变量（推荐），参见 ENV_CONFIGURATION.md
+
+server:
+  port: 8080
+
+spring:
+  # 数据库配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/spring_2026_festival?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: your_database_password_here
+
+  # Redis配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: your_redis_password_here
+      database: 0
+
+# 阿里云OSS配置（使用环境变量）
+aliyun:
+  oss:
+    accounts:
+      default:
+        endpoint: oss-cn-hangzhou.aliyuncs.com
+        access-key-id: ${OSS_DEFAULT_ACCESS_KEY_ID}
+        access-key-secret: ${OSS_DEFAULT_ACCESS_KEY_SECRET}
+        bucket: ths-newyear-2026
+        private-access: true
+        signed-url-expire: 600
+      cv:
+        endpoint: oss-cn-hangzhou.aliyuncs.com
+        access-key-id: ${OSS_CV_ACCESS_KEY_ID}
+        access-key-secret: ${OSS_CV_ACCESS_KEY_SECRET}
+        bucket: cv-springfestval-2026
+        private-access: true
+        signed-url-expire: 600
+
+# AI服务配置
+ai:
+  service:
+    url: http://ai-service.example.com
+    api-secret: ${AI_API_SECRET}
+    callback-secret: ${AI_CALLBACK_SECRET}
+    timeout: 30000
+
+# 算法服务配置
+algorithm:
+  face-swap:
+    url: ${FACE_SWAP_URL:http://face-swap-service.com}
+    api-key: ${FACE_SWAP_API_KEY}
+    timeout: 30000
+  lip-sync:
+    url: ${LIP_SYNC_URL:http://lip-sync-service.com}
+    api-key: ${LIP_SYNC_API_KEY}
+    timeout: 30000
+  voice-clone:
+    url: ${VOICE_CLONE_URL:http://voice-clone-service.com}
+    timeout: 60000
+  voice-tts:
+    url: ${VOICE_TTS_URL:http://voice-tts-service.com}
+    timeout: 60000
+  multi-image-generate:
+    url: ${MULTI_IMAGE_GENERATE_URL:http://multi-image-generate-service.com}
+    timeout: 120000

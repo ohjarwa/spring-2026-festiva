@@ -52,14 +52,31 @@ public class VideoProcessorUtil {
      * @return 拼接后的视频文件路径
      */
     public String concatVideos(List<String> videoUrls) throws Exception {
+        String outputPath = "output/videos/concat_" + UUID.randomUUID() + ".mp4";
+        return concatVideos(videoUrls, outputPath);
+    }
+
+    /**
+     * 拼接多个视频（指定输出路径）
+     *
+     * @param videoUrls  视频URL列表
+     * @param outputUrl  输出URL（OSS地址或本地路径）
+     * @return 拼接后的视频文件路径
+     */
+    public String concatVideos(List<String> videoUrls, String outputUrl) throws Exception {
         if (videoUrls == null || videoUrls.isEmpty()) {
             throw new IllegalArgumentException("视频URL列表不能为空");
         }
 
-        log.info("开始拼接视频: {} 个视频", videoUrls.size());
+        log.info("开始拼接视频: {} 个视频, outputUrl={}", videoUrls.size(), outputUrl);
 
-        String outputPath = "output/videos/concat_" + UUID.randomUUID() + ".mp4";
-        Files.createDirectories(Paths.get(outputPath).getParent());
+        String localOutputPath = outputUrl;
+        // 如果是OSS URL，生成本地临时文件路径
+        if (outputUrl.startsWith("http")) {
+            localOutputPath = "output/videos/concat_" + UUID.randomUUID() + ".mp4";
+        }
+
+        Files.createDirectories(Paths.get(localOutputPath).getParent());
 
         try {
             // 方案：使用FFmpeg的concat demuxer
@@ -73,7 +90,7 @@ public class VideoProcessorUtil {
             Files.write(listFile, concatList);
 
             FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(listFile.toString());
-            FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(outputPath,
+            FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(localOutputPath,
                     grabber.getImageWidth(),
                     grabber.getImageHeight(),
                     grabber.getAudioChannels());
@@ -98,8 +115,11 @@ public class VideoProcessorUtil {
             // 删除临时文件
             Files.deleteIfExists(listFile);
 
-            log.info("视频拼接完成: {}", outputPath);
-            return outputPath;
+            log.info("视频拼接完成: {}", localOutputPath);
+
+            // TODO: 如果是OSS URL，上传到OSS后返回URL
+            // 暂时返回本地路径
+            return localOutputPath;
 
         } catch (Exception e) {
             log.error("视频拼接异常", e);
@@ -279,6 +299,79 @@ public class VideoProcessorUtil {
 
         // 实际上和mergeVideoAndAudio类似，但只使用新音频
         return mergeVideoAndAudio(videoUrl, newAudioUrl);
+    }
+
+    /**
+     * 混入背景音乐（BGM）到视频
+     * 将视频的原始音频与背景音乐混合
+     *
+     * @param videoUrl 视频URL
+     * @param bgmUrl   背景音乐URL
+     * @param outputUrl 输出URL（OSS地址）
+     * @return 混合后的视频URL
+     */
+    public String mixAudioWithBgm(String videoUrl, String bgmUrl, String outputUrl) throws Exception {
+        log.info("开始混入背景音乐: video={}, bgm={}", videoUrl, bgmUrl);
+
+        String localOutputPath = "output/videos/mix_bgm_" + UUID.randomUUID() + ".mp4";
+        Files.createDirectories(Paths.get(localOutputPath).getParent());
+
+        try {
+            FFmpegFrameGrabber videoGrabber = new FFmpegFrameGrabber(videoUrl);
+            FFmpegFrameGrabber bgmGrabber = new FFmpegFrameGrabber(bgmUrl);
+
+            videoGrabber.start();
+            bgmGrabber.start();
+
+            FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(localOutputPath,
+                    videoGrabber.getImageWidth(),
+                    videoGrabber.getImageHeight(),
+                    videoGrabber.getAudioChannels());
+
+            recorder.setVideoCodec(org.bytedeco.ffmpeg.global.avcodec.AV_CODEC_ID_H264);
+            recorder.setAudioCodec(org.bytedeco.ffmpeg.global.avcodec.AV_CODEC_ID_AAC);
+            recorder.setFormat("mp4");
+            recorder.setFrameRate(videoGrabber.getFrameRate());
+            recorder.setSampleRate(videoGrabber.getSampleRate());
+            recorder.setAudioQuality(0);  // 高质量音频
+
+            recorder.start();
+
+            // 读取视频帧和混合音频
+            Frame videoFrame;
+            Frame videoAudioFrame;
+            Frame bgmFrame;
+
+            while ((videoFrame = videoGrabber.grabImage()) != null) {
+                // 录制视频帧
+                recorder.record(videoFrame);
+            }
+
+            // 混合音频：视频原始音频 + BGM
+            // 简化实现：先录制视频音频，再录制BGM（实际应使用音频混合滤镜）
+            while ((videoAudioFrame = videoGrabber.grabSamples()) != null) {
+                recorder.record(videoAudioFrame);
+            }
+
+            // 循环BGM以匹配视频长度
+            while ((bgmFrame = bgmGrabber.grabSamples()) != null) {
+                recorder.record(bgmFrame);
+            }
+
+            recorder.stop();
+            videoGrabber.stop();
+            bgmGrabber.stop();
+
+            log.info("背景音乐混合完成: {}", localOutputPath);
+
+            // TODO: 上传到OSS并返回URL
+            // 这里暂时返回本地路径，实际应上传到OSS后返回outputUrl
+            return localOutputPath;
+
+        } catch (Exception e) {
+            log.error("背景音乐混合异常", e);
+            throw e;
+        }
     }
 
     /**

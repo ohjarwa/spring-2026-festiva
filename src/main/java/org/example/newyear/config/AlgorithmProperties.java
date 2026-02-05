@@ -35,6 +35,11 @@ public class AlgorithmProperties {
      */
     private VoiceTtsConfig voiceTts = new VoiceTtsConfig();
 
+    /**
+     * 多图生图服务配置
+     */
+    private MultiImageGenerateConfig multiImageGenerate = new MultiImageGenerateConfig();
+
     @Data
     public static class FaceSwapConfig {
         /**
@@ -95,5 +100,23 @@ public class AlgorithmProperties {
          * 超时时间（毫秒）
          */
         private Integer timeout = 60000;
+    }
+
+    @Data
+    public static class MultiImageGenerateConfig {
+        /**
+         * 服务地址
+         */
+        private String url = "http://multi-image-generate-service.com";
+
+        /**
+         * API密钥
+         */
+        private String apiKey;
+
+        /**
+         * 超时时间（毫秒）
+         */
+        private Integer timeout = 120000;  // 2分钟（图生图较慢）
     }
 }

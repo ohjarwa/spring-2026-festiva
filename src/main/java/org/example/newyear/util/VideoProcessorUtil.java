@@ -1,10 +1,13 @@
 package org.example.newyear.util;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bytedeco.javacv.*;
+import org.example.newyear.service.oss.OssService;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -17,15 +20,17 @@ import java.util.concurrent.Executors;
 
 /**
  * 视频处理工具类（基于JavaCV）
- * 支持视频拼接、音频拼接、音视频合成
+ * 支持视频拼接、音频拼接、音视频合成、OSS上传
  *
  * @author Claude
  * @since 2026-02-05
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class VideoProcessorUtil {
 
+    private final OssService ossService;
     private final ExecutorService executorService = Executors.newFixedThreadPool(5);
 
     /**
@@ -53,28 +58,51 @@ public class VideoProcessorUtil {
      */
     public String concatVideos(List<String> videoUrls) throws Exception {
         String outputPath = "output/videos/concat_" + UUID.randomUUID() + ".mp4";
-        return concatVideos(videoUrls, outputPath);
+        return concatVideos(videoUrls, outputPath, "default", "default");
     }
 
     /**
-     * 拼接多个视频（指定输出路径）
+     * 拼接多个视频（指定recordId，自动上传到默认OSS）
+     *
+     * @param videoUrls 视频URL列表
+     * @param recordId  记录ID
+     * @return 拼接后的视频OSS URL
+     */
+    public String concatVideos(List<String> videoUrls, String recordId) throws Exception {
+        String localOutputPath = "output/videos/concat_" + UUID.randomUUID() + ".mp4";
+        return concatVideos(videoUrls, localOutputPath, recordId, "default");
+    }
+
+    /**
+     * 拼接多个视频（指定recordId和OSS账号）
      *
      * @param videoUrls  视频URL列表
-     * @param outputUrl  输出URL（OSS地址或本地路径）
-     * @return 拼接后的视频文件路径
+     * @param recordId   记录ID
+     * @param accountType OSS账号类型（如：default、cv）
+     * @return 拼接后的视频OSS URL
      */
-    public String concatVideos(List<String> videoUrls, String outputUrl) throws Exception {
+    public String concatVideos(List<String> videoUrls, String recordId, String accountType) throws Exception {
+        String localOutputPath = "output/videos/concat_" + UUID.randomUUID() + ".mp4";
+        return concatVideos(videoUrls, localOutputPath, recordId, accountType);
+    }
+
+    /**
+     * 拼接多个视频（指定输出路径和OSS账号）
+     *
+     * @param videoUrls   视频URL列表
+     * @param outputUrl   输出路径（本地或OSS）
+     * @param recordId    记录ID（用于生成OSS路径）
+     * @param accountType OSS账号类型（如：default、cv）
+     * @return 拼接后的视频OSS URL
+     */
+    public String concatVideos(List<String> videoUrls, String outputUrl, String recordId, String accountType) throws Exception {
         if (videoUrls == null || videoUrls.isEmpty()) {
             throw new IllegalArgumentException("视频URL列表不能为空");
         }
 
-        log.info("开始拼接视频: {} 个视频, outputUrl={}", videoUrls.size(), outputUrl);
+        log.info("开始拼接视频: {} 个视频, recordId={}, accountType={}", videoUrls.size(), recordId, accountType);
 
         String localOutputPath = outputUrl;
-        // 如果是OSS URL，生成本地临时文件路径
-        if (outputUrl.startsWith("http")) {
-            localOutputPath = "output/videos/concat_" + UUID.randomUUID() + ".mp4";
-        }
 
         Files.createDirectories(Paths.get(localOutputPath).getParent());
 
@@ -115,11 +143,16 @@ public class VideoProcessorUtil {
             // 删除临时文件
             Files.deleteIfExists(listFile);
 
-            log.info("视频拼接完成: {}", localOutputPath);
+            log.info("视频拼接完成: localPath={}", localOutputPath);
 
-            // TODO: 如果是OSS URL，上传到OSS后返回URL
-            // 暂时返回本地路径
-            return localOutputPath;
+            // 上传到OSS（指定账号类型）
+            String ossUrl = uploadLocalFileToOss(localOutputPath, recordId, "videos", "final_result", accountType);
+            log.info("拼接视频已上传到OSS[{}]: {}", accountType, ossUrl);
+
+            // 删除本地临时文件
+            deleteLocalFile(localOutputPath);
+
+            return ossUrl;
 
         } catch (Exception e) {
             log.error("视频拼接异常", e);
@@ -307,11 +340,11 @@ public class VideoProcessorUtil {
      *
      * @param videoUrl 视频URL
      * @param bgmUrl   背景音乐URL
-     * @param outputUrl 输出URL（OSS地址）
-     * @return 混合后的视频URL
+     * @param recordId 记录ID（用于生成OSS路径）
+     * @return 混合后的视频OSS URL
      */
-    public String mixAudioWithBgm(String videoUrl, String bgmUrl, String outputUrl) throws Exception {
-        log.info("开始混入背景音乐: video={}, bgm={}", videoUrl, bgmUrl);
+    public String mixAudioWithBgm(String videoUrl, String bgmUrl, String recordId) throws Exception {
+        log.info("开始混入背景音乐: video={}, bgm={}, recordId={}", videoUrl, bgmUrl, recordId);
 
         String localOutputPath = "output/videos/mix_bgm_" + UUID.randomUUID() + ".mp4";
         Files.createDirectories(Paths.get(localOutputPath).getParent());
@@ -362,11 +395,16 @@ public class VideoProcessorUtil {
             videoGrabber.stop();
             bgmGrabber.stop();
 
-            log.info("背景音乐混合完成: {}", localOutputPath);
+            log.info("背景音乐混合完成: localPath={}", localOutputPath);
 
-            // TODO: 上传到OSS并返回URL
-            // 这里暂时返回本地路径，实际应上传到OSS后返回outputUrl
-            return localOutputPath;
+            // 上传到OSS
+            String ossUrl = uploadLocalFileToOss(localOutputPath, recordId, "videos", "mix_bgm");
+            log.info("背景音乐视频已上传到OSS: {}", ossUrl);
+
+            // 删除本地临时文件
+            deleteLocalFile(localOutputPath);
+
+            return ossUrl;
 
         } catch (Exception e) {
             log.error("背景音乐混合异常", e);
@@ -401,6 +439,158 @@ public class VideoProcessorUtil {
             double duration = grabber.getLengthInTime() / 1000000.0;
             grabber.stop();
             return duration;
+        }
+    }
+
+    // ======================== OSS上传辅助方法 ========================
+
+    /**
+     * 上传本地文件到OSS（使用默认账号）
+     *
+     * @param localFilePath 本地文件路径
+     * @param recordId      记录ID
+     * @param category      文件分类（如：videos, audios, images）
+     * @param fileName      文件名（不含扩展名）
+     * @return OSS访问URL
+     */
+    private String uploadLocalFileToOss(String localFilePath, String recordId, String category, String fileName) throws Exception {
+        return uploadLocalFileToOss(localFilePath, recordId, category, fileName, "default");
+    }
+
+    /**
+     * 上传本地文件到OSS（指定OSS账号）
+     *
+     * @param localFilePath 本地文件路径
+     * @param recordId      记录ID
+     * @param category      文件分类（如：videos, audios, images）
+     * @param fileName      文件名（不含扩展名）
+     * @param accountType   OSS账号类型（如：default、cv）
+     * @return OSS访问URL
+     */
+    private String uploadLocalFileToOss(String localFilePath, String recordId, String category, String fileName, String accountType) throws Exception {
+        try {
+            File localFile = new File(localFilePath);
+            if (!localFile.exists()) {
+                throw new RuntimeException("本地文件不存在: " + localFilePath);
+            }
+
+            // 获取文件扩展名
+            String extension = getFileExtension(localFile.getName());
+
+            // 生成OSS路径：spring2026/{recordId}/{category}/{fileName}{extension}
+            String ossPath = String.format("%s/%s/%s/%s%s",
+                    recordId, category, fileName, extension);
+
+            log.info("开始上传到OSS[{}]: localFile={}, ossPath={}", accountType, localFilePath, ossPath);
+
+            // 创建MultipartFile（需要自定义实现）
+            // 由于Spring的MultipartFile是接口，我们需要创建一个适配器
+            FileMultipartFile fileAdapter = new FileMultipartFile(localFile);
+
+            // 上传到OSS（指定账号类型）
+            var uploadResult = ossService.upload(fileAdapter, ossPath, accountType);
+
+            log.info("OSS上传成功[{}]: fileKey={}, accessUrl={}",
+                    accountType, uploadResult.getFileKey(), uploadResult.getAccessUrl());
+
+            return uploadResult.getAccessUrl();
+
+        } catch (Exception e) {
+            log.error("上传到OSS失败: localFile={}", localFilePath, e);
+            throw new RuntimeException("上传到OSS失败", e);
+        }
+    }
+
+    /**
+     * 删除本地文件
+     *
+     * @param filePath 文件路径
+     */
+    private void deleteLocalFile(String filePath) {
+        try {
+            File file = new File(filePath);
+            if (file.exists()) {
+                boolean deleted = file.delete();
+                log.info("删除本地文件: {}, success={}", filePath, deleted);
+            }
+        } catch (Exception e) {
+            log.warn("删除本地文件失败: {}", filePath, e);
+        }
+    }
+
+    /**
+     * 获取文件扩展名
+     *
+     * @param filename 文件名
+     * @return 扩展名（包含点）
+     */
+    private String getFileExtension(String filename) {
+        int lastDotIndex = filename.lastIndexOf('.');
+        if (lastDotIndex > 0 && lastDotIndex < filename.length() - 1) {
+            return filename.substring(lastDotIndex);
+        }
+        return "";
+    }
+
+    /**
+     * File到MultipartFile的适配器
+     */
+    private static class FileMultipartFile implements org.springframework.web.multipart.MultipartFile {
+        private final File file;
+
+        public FileMultipartFile(File file) {
+            this.file = file;
+        }
+
+        @Override
+        public String getName() {
+            return file.getName();
+        }
+
+        @Override
+        public String getOriginalFilename() {
+            return file.getName();
+        }
+
+        @Override
+        public String getContentType() {
+            // 根据文件扩展名推测MIME类型
+            String filename = file.getName().toLowerCase();
+            if (filename.endsWith(".mp4")) {
+                return "video/mp4";
+            } else if (filename.endsWith(".mp3")) {
+                return "audio/mpeg";
+            } else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) {
+                return "image/jpeg";
+            } else if (filename.endsWith(".png")) {
+                return "image/png";
+            }
+            return "application/octet-stream";
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return file.length() == 0;
+        }
+
+        @Override
+        public long getSize() {
+            return file.length();
+        }
+
+        @Override
+        public byte[] getBytes() throws java.io.IOException {
+            return java.nio.file.Files.readAllBytes(file.toPath());
+        }
+
+        @Override
+        public java.io.InputStream getInputStream() throws java.io.IOException {
+            return new FileInputStream(file);
+        }
+
+        @Override
+        public void transferTo(File dest) throws java.io.IOException, IllegalStateException {
+            java.nio.file.Files.copy(file.toPath(), dest.toPath());
         }
     }
 }

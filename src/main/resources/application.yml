@@ -126,6 +126,13 @@ business:
   # 签名时间戳容差（毫秒）
   timestamp-tolerance: 300000
 
+vision:
+  app-id: ${VISION_APP_ID:your-app-id}
+  app-secret: ${VISION_APP_SECRET:your-app-secret}
+  callback-url: http://your-service/vision/callback/result
+  progress-callback-url: http://your-service/vision/callback/progress
+  tags: activity2026
+
 # 日志配置
 logging:
   level:

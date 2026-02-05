@@ -41,7 +41,7 @@ DROP TABLE IF EXISTS `spring_2026_creation_record`;
 CREATE TABLE `spring_2026_creation_record` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `record_id` varchar(64) NOT NULL COMMENT '记录唯一标识',
-  `user_id` varchar(64) NOT NULL COMMENT '用户ID',
+  `user_id` varchar(64) NOT  COMMENT '用户ID',
   `activity_type` tinyint(4) NOT NULL DEFAULT '1' COMMENT '活动类型',
 
   -- 模板信息

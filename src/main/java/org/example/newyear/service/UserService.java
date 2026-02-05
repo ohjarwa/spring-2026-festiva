@@ -1,6 +1,7 @@
 package org.example.newyear.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.newyear.common.BusinessCode;
@@ -103,7 +104,7 @@ public class UserService {
 
         // 扣减配额
         int updated = userMapper.update(null,
-                new LambdaQueryWrapper<Spring2026User>()
+                new LambdaUpdateWrapper<Spring2026User>()
                         .eq(Spring2026User::getUserId, userId)
                         .eq(Spring2026User::getActivityType, Constants.ACTIVITY_TYPE_SPRING_2026)
                         .gt(Spring2026User::getRemainingQuota, 0)
@@ -120,7 +121,7 @@ public class UserService {
      */
     public void refundQuota(String userId) {
         userMapper.update(null,
-                new LambdaQueryWrapper<Spring2026User>()
+                new LambdaUpdateWrapper<Spring2026User>()
                         .eq(Spring2026User::getUserId, userId)
                         .eq(Spring2026User::getActivityType, Constants.ACTIVITY_TYPE_SPRING_2026)
                         .setSql("used_quota = used_quota - 1")
@@ -133,7 +134,7 @@ public class UserService {
      */
     public void incrementSuccessCount(String userId) {
         userMapper.update(null,
-                new LambdaQueryWrapper<Spring2026User>()
+                new LambdaUpdateWrapper<Spring2026User>()
                         .eq(Spring2026User::getUserId, userId)
                         .setSql("success_count = success_count + 1")
         );
@@ -144,7 +145,7 @@ public class UserService {
      */
     public void incrementFailedCount(String userId) {
         userMapper.update(null,
-                new LambdaQueryWrapper<Spring2026User>()
+                new LambdaUpdateWrapper<Spring2026User>()
                         .eq(Spring2026User::getUserId, userId)
                         .setSql("failed_count = failed_count + 1")
         );

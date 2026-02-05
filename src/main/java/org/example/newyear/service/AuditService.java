@@ -215,12 +215,17 @@ public class AuditService {
      * 获取状态文本
      */
     private String getStatusText(String status) {
-        return switch (status) {
-            case "pending" -> "审核中";
-            case "pass" -> "通过";
-            case "reject" -> "拒绝";
-            case "review" -> "人工审核";
-            default -> "未知状态";
-        };
+        switch (status) {
+            case "pending":
+                return "审核中";
+            case "pass":
+                return "通过";
+            case "reject":
+                return "拒绝";
+            case "review":
+                return "人工审核";
+            default:
+                return "未知状态";
+        }
     }
 }

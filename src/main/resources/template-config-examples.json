@@ -1,0 +1,94 @@
+{
+  "template_examples": {
+    "standard_template": {
+      "template_id": "tpl_001",
+      "template_name": "标准新春祝福",
+      "task_config": {
+        "steps": [
+          {
+            "step_name": "face_swap",
+            "step_type": "video_process",
+            "service": "faceSwapService",
+            "method": "swapFace",
+            "description": "人脸替换",
+            "input_mapping": {
+              "videoUrl": "{{template_video_url}}",
+              "faceImageUrl": "{{user_photo_url}}"
+            },
+            "output_key": "face_swap_result",
+            "timeout_seconds": 30
+          },
+          {
+            "step_name": "voice_clone",
+            "step_type": "audio_process",
+            "service": "voiceCloneService",
+            "method": "cloneVoice",
+            "description": "声音克隆",
+            "input_mapping": {
+              "audioUrl": "{{user_audio_url}}"
+            },
+            "output_key": "voice_id",
+            "timeout_seconds": 60
+          },
+          {
+            "step_name": "voice_tts",
+            "step_type": "audio_process",
+            "service": "voiceTtsService",
+            "method": "synthesizeVoice",
+            "description": "声音合成",
+            "input_mapping": {
+              "voiceId": "{{voice_clone_result.voiceId}}",
+              "text": "春节快乐，万事如意，恭喜发财！"
+            },
+            "output_key": "tts_audio_url",
+            "timeout_seconds": 60,
+            "depends_on": ["voice_clone"]
+          },
+          {
+            "step_name": "lip_sync",
+            "step_type": "video_process",
+            "service": "lipSyncService",
+            "method": "syncLip",
+            "description": "唇形同步",
+            "input_mapping": {
+              "videoUrl": "{{face_swap_result.resultUrl}}",
+              "audioUrl": "{{tts_audio_url}}"
+            },
+            "output_key": "final_video_url",
+            "timeout_seconds": 30,
+            "depends_on": ["face_swap", "voice_tts"]
+          }
+        ],
+        "estimated_time_seconds": 180,
+        "parallel_groups": [
+          ["face_swap", "voice_clone"],
+          ["voice_tts"],
+          ["lip_sync"]
+        ]
+      }
+    },
+    "simple_template": {
+      "template_id": "tpl_002",
+      "template_name": "简单祝福",
+      "task_config": {
+        "steps": [
+          {
+            "step_name": "face_swap",
+            "step_type": "video_process",
+            "service": "faceSwapService",
+            "method": "swapFace",
+            "description": "人脸替换",
+            "input_mapping": {
+              "videoUrl": "{{template_video_url}}",
+              "faceImageUrl": "{{user_photo_url}}"
+            },
+            "output_key": "result",
+            "timeout_seconds": 30
+          }
+        ],
+        "estimated_time_seconds": 30,
+        "parallel_groups": [["face_swap"]]
+      }
+    }
+  }
+}

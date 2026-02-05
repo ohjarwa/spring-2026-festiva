@@ -82,6 +82,30 @@ ai:
     callback-secret: ${AI_CALLBACK_SECRET}
     timeout: 30000
 
+# 算法服务配置
+algorithm:
+  # 人脸替换服务（需要鉴权）
+  face-swap:
+    url: ${FACE_SWAP_URL:http://face-swap-service.com}
+    api-key: ${FACE_SWAP_API_KEY}
+    timeout: 30000
+
+  # 唇形同步服务（需要鉴权）
+  lip-sync:
+    url: ${LIP_SYNC_URL:http://lip-sync-service.com}
+    api-key: ${LIP_SYNC_API_KEY}
+    timeout: 30000
+
+  # 声音克隆服务（无需鉴权）
+  voice-clone:
+    url: ${VOICE_CLONE_URL:http://voice-clone-service.com}
+    timeout: 60000
+
+  # 声音合成服务（无需鉴权）
+  voice-tts:
+    url: ${VOICE_TTS_URL:http://voice-tts-service.com}
+    timeout: 60000
+
 # 业务配置
 business:
   # 每日配额

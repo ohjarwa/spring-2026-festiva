@@ -3,16 +3,14 @@ package org.example.newyear.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.newyear.common.BusinessCode;
-import org.example.newyear.common.Constants;
 import org.example.newyear.dto.VideoCreateDTO;
+import org.example.newyear.dto.VideoCreateDTO.MaterialsDTO;
 import org.example.newyear.dto.VideoRegenerateDTO;
 import org.example.newyear.entity.Spring2026CreationRecord;
 import org.example.newyear.exception.BusinessException;
 import org.example.newyear.mapper.Spring2026CreationRecordMapper;
-import org.example.newyear.template.TemplateService;
 import org.example.newyear.util.JsonUtil;
 import org.example.newyear.vo.VideoCreateVO;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +30,7 @@ public class VideoService {
     private final UserService userService;
     private final CreationRecordService creationRecordService;
     private final TemplateService templateService;
+    private final VideoProcessingService videoProcessingService;
     private final Spring2026CreationRecordMapper recordMapper;
 
     /**
@@ -59,12 +58,13 @@ public class VideoService {
         String materialsJson = JsonUtil.toJson(dto.getMaterials());
         String recordId = creationRecordService.createRecord(userId, dto.getTemplateId(), materialsJson);
 
-        // 4. 异步处理视频生成（视频拼接、调用算法服务等）
-        // TODO: 这里暂时不实现异步处理逻辑，等后续完善
-        // templateid -> 拼接配置
-        // 异步线程池：1  3   ok ->
-        // ffmpeg 拼接
-        // 拼接 更新
+        // 4. 异步处理视频生成
+        try {
+            videoProcessingService.processVideoCreation(recordId, userId, dto);
+        } catch (Exception e) {
+            log.error("启动视频处理失败: recordId={}", recordId, e);
+        }
+
         // 5. 返回结果
         VideoCreateVO vo = new VideoCreateVO();
         vo.setRecordId(recordId);
@@ -103,8 +103,20 @@ public class VideoService {
         record.setProgress(0);
         recordMapper.updateById(record);
 
-        // 5. 异步处理视频生成
-        // TODO: 这里暂时不实现异步处理逻辑，等后续完善
+        // 5. 重新执行视频处理
+        try {
+            // 从userMaterials解析MaterialsDTO
+            MaterialsDTO materials = JsonUtil.fromJson(record.getUserMaterials(), MaterialsDTO.class);
+
+            // 构建VideoCreateDTO
+            VideoCreateDTO createDto = new VideoCreateDTO();
+            createDto.setTemplateId(record.getTemplateId());
+            createDto.setMaterials(materials);
+
+            videoProcessingService.processVideoCreation(record.getRecordId(), userId, createDto);
+        } catch (Exception e) {
+            log.error("重新生成视频失败: recordId={}", record.getRecordId(), e);
+        }
 
         // 6. 返回结果
         Map<String, Object> taskConfig = templateService.getTaskConfig(record.getTemplateId());

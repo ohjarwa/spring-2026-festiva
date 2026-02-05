@@ -1,7 +1,6 @@
 package org.example.newyear.service.algorithm;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.newyear.config.VisionConfig;
 import org.example.newyear.dto.algorithm.vision.*;
@@ -14,7 +13,6 @@ import java.util.HashMap;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class VisionServiceImpl implements VisionService {
 
     private static final String BASE_URL = "http://vision-platform-hxapisix.hxapisix/infer/cn/access";
@@ -24,8 +22,16 @@ public class VisionServiceImpl implements VisionService {
     private static final String JUMP_PATH = "/assemble_common/algorithm/jump";
 
     private final RestTemplate restTemplate;
+
     private final ObjectMapper objectMapper;
+
     private final VisionConfig visionConfig;
+
+    public VisionServiceImpl(RestTemplate restTemplate, ObjectMapper objectMapper, VisionConfig visionConfig) {
+        this.restTemplate = restTemplate;
+        this.objectMapper = objectMapper;
+        this.visionConfig = visionConfig;
+    }
 
     @Override
     public AsyncSubmitResponse submitAsync(Object request, VisionRequestHeaders headers) {

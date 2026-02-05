@@ -123,7 +123,11 @@ vision:
   callback-url: http://your-service/vision/callback/result
   progress-callback-url: http://your-service/vision/callback/progress
   tags: activity2026
-
+audio:
+  song-conversion:
+    base-url: http://ip:port
+    source: ${AUDIO_SOURCE:your-source}
+    callback-url: http://your-service/audio/callback/song-conversion
 # 日志配置
 logging:
   level:

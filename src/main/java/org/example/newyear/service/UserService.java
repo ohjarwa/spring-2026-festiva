@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.newyear.common.AdminLevel;
 import org.example.newyear.common.BusinessCode;
 import org.example.newyear.common.Constants;
 import org.example.newyear.entity.Spring2026User;
@@ -149,5 +150,57 @@ public class UserService {
                         .eq(Spring2026User::getUserId, userId)
                         .setSql("failed_count = failed_count + 1")
         );
+    }
+
+    /**
+     * 获取用户的管理员级别
+     *
+     * @param userId 用户ID
+     * @return 管理员级别
+     */
+    public AdminLevel getUserAdminLevel(String userId) {
+        Spring2026User user = userMapper.selectOne(
+                new LambdaQueryWrapper<Spring2026User>()
+                        .eq(Spring2026User::getUserId, userId)
+                        .eq(Spring2026User::getActivityType, Constants.ACTIVITY_TYPE_SPRING_2026)
+        );
+
+        if (user == null) {
+            return AdminLevel.USER;
+        }
+
+        Integer level = user.getAdminLevel();
+        return AdminLevel.fromCode(level);
+    }
+
+    /**
+     * 设置用户的管理员级别
+     *
+     * @param operatorId 操作者用户ID
+     * @param targetId  目标用户ID
+     * @param level     新的管理员级别
+     */
+    public void setUserAdminLevel(String operatorId, String targetId, AdminLevel level) {
+        // 检查操作者权限（必须是超级管理员）
+        AdminLevel operatorLevel = getUserAdminLevel(operatorId);
+        if (!operatorLevel.isSuperAdmin()) {
+            throw new BusinessException(BusinessCode.ERROR_NOT_SUPER_ADMIN,
+                    "只有超级管理员可以设置管理员权限");
+        }
+
+        // 不能将自己降级
+        if (operatorId.equals(targetId) && level.getCode() < operatorLevel.getCode()) {
+            throw new BusinessException(BusinessCode.ERROR_PERMISSION_DENIED, "不能降低自己的管理员级别");
+        }
+
+        // 更新目标用户的管理员级别
+        userMapper.update(null,
+                new LambdaUpdateWrapper<Spring2026User>()
+                        .eq(Spring2026User::getUserId, targetId)
+                        .setSql("admin_level = " + level.getCode())
+        );
+
+        log.info("更新用户管理员级别: operatorId={}, targetId={}, newLevel={}",
+                operatorId, targetId, level);
     }
 }

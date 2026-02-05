@@ -150,3 +150,24 @@ INSERT INTO `spring_2026_user` (`user_id`, `activity_type`, `source`, `total_quo
 VALUES
 ('test_user_001', 1, 'in_app', 10, 0, 10),
 ('test_user_002', 1, 'in_app', 10, 3, 7);
+
+-- =============================================
+-- 管理员功能升级（2026-02-05）
+-- =============================================
+
+-- 1. 添加管理员级别字段到用户表
+ALTER TABLE `spring_2026_user`
+ADD COLUMN `admin_level` tinyint(4) DEFAULT '0' COMMENT '管理员级别 0=普通用户 1=审核员 2=管理员 3=超级管理员'
+AFTER `extra_data`;
+
+-- 2. 创建超级管理员账号（请修改user_id为实际的管理员账号）
+INSERT IGNORE INTO `spring_2026_user`
+(`user_id`, `activity_type`, `source`, `total_quota`, `used_quota`, `remaining_quota`, `admin_level`)
+VALUES
+('admin', 1, 'system', 99999, 0, 99999, 3);
+
+-- 如果不存在则创建
+-- 注意：生产环境请立即修改或删除默认admin账号！
+
+-- 3. 更新作品表状态说明（status字段）
+-- 0=排队 1=生成中 2=已完成 3=失败 4=已下线（管理员操作）

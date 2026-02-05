@@ -291,39 +291,33 @@ public class Template1to4Processor implements ITemplateProcessor {
      */
     private String performAudioMixing(String videoUrl, String bgmUrl, String recordId) {
         try {
-            log.info("开始混音: videoUrl={}, bgmUrl={}", videoUrl, bgmUrl);
+            log.info("开始混入背景音乐: videoUrl={}, bgmUrl={}, recordId={}", videoUrl, bgmUrl, recordId);
 
-            // 输出URL
-            String outputUrl = buildOutputUrl(recordId, "video2_with_bgm");
+            // 使用JavaCV混入背景音乐，自动上传到OSS
+            String ossUrl = videoProcessorUtil.mixAudioWithBgm(videoUrl, bgmUrl, recordId);
 
-            // 使用JavaCV混入背景音乐
-            videoProcessorUtil.mixAudioWithBgm(videoUrl, bgmUrl, outputUrl);
-
-            log.info("混音完成: outputUrl={}", outputUrl);
-            return outputUrl;
+            log.info("背景音乐混合完成并上传到OSS: ossUrl={}", ossUrl);
+            return ossUrl;
 
         } catch (Exception e) {
-            log.error("混音失败: recordId={}", recordId, e);
+            log.error("背景音乐混合失败: recordId={}", recordId, e);
             throw new RuntimeException("背景音乐混合失败", e);
         }
     }
 
     /**
-     * 步骤7: 视频拼接
+     * 步骤7: 视频拼接（上传到cv账户）
      */
     private String performVideoConcatenation(String video0Url, String video2Url, String recordId) {
         try {
-            log.info("开始视频拼接: video0={}, video2={}", video0Url, video2Url);
+            log.info("开始视频拼接: video0={}, video2={}, recordId={}", video0Url, video2Url, recordId);
 
-            // 输出URL
-            String outputUrl = buildOutputUrl(recordId, "final_result");
-
-            // 拼接视频
+            // 拼接视频，上传到cv账户的OSS
             java.util.List<String> videoUrls = java.util.Arrays.asList(video0Url, video2Url);
-            videoProcessorUtil.concatVideos(videoUrls, outputUrl);
+            String ossUrl = videoProcessorUtil.concatVideos(videoUrls, recordId, "cv");
 
-            log.info("视频拼接完成: outputUrl={}", outputUrl);
-            return outputUrl;
+            log.info("视频拼接完成并上传到OSS[cv]: ossUrl={}", ossUrl);
+            return ossUrl;
 
         } catch (Exception e) {
             log.error("视频拼接失败: recordId={}", recordId, e);
@@ -358,13 +352,5 @@ public class Template1to4Processor implements ITemplateProcessor {
             default:
                 throw new IllegalArgumentException("未知的步骤名称: " + stepName);
         }
-    }
-
-    /**
-     * 构建输出URL
-     */
-    private String buildOutputUrl(String recordId, String stage) {
-        // TODO: 上传到OSS后返回URL
-        return "https://your-oss-bucket.com/results/" + recordId + "/" + stage + ".mp4";
     }
 }

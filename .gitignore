@@ -37,3 +37,25 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### 环境变量和敏感配置 ###
+.env
+.env.local
+.env.*.local
+application-local.yml
+application-local.properties
+
+### 日志文件 ###
+logs/
+*.log
+log/
+
+### 临时文件和输出 ###
+output/
+temp/
+tmp/
+*.tmp
+
+### OSS下载的文件 ###
+downloads/
+cache/

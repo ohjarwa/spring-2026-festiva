@@ -63,16 +63,24 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# 阿里云OSS配置
 aliyun:
   oss:
-    endpoint: oss-cn-hangzhou.aliyuncs.com
-    access-key-id: ${OSS_ACCESS_KEY_ID}
-    access-key-secret: ${OSS_ACCESS_KEY_SECRET}
-    bucket: your-bucket
-    private: true
-    # 签名URL有效期（秒）
-    signed-url-expire: 600
+    accounts:
+      # 默认账号
+      default:
+        endpoint: oss-cn-hangzhou.aliyuncs.com
+        access-key-id: ${DEFAULE_OSS_ACCESS_KEY_ID}
+        access-key-secret: ${DEFAULE_OSS_ACCESS_KEY_SECRET}
+        bucket: ths-newyear-2026
+        private-access: true
+        signed-url-expire: 600
+      cv:
+        endpoint: oss-cn-hangzhou.aliyuncs.com
+        access-key-id: ${CV_OSS_ACCESS_KEY_ID}
+        access-key-secret: ${CV_OSS_ACCESS_KEY_SECRET}
+        bucket: cv-springfestval-2026
+        private-access: true
+        signed-url-expire: 600
 
 # AI服务配置
 ai:

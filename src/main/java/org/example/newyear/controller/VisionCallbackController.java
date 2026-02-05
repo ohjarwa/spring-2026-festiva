@@ -1,10 +1,12 @@
 package org.example.newyear.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.newyear.dto.algorithm.vision.VisionCallbackResponse;
 import org.example.newyear.entity.enums.TaskStatus;
+import org.example.newyear.service.VideoProcessingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,6 +18,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/vision/callback")
 @RequiredArgsConstructor
 public class VisionCallbackController {
+
+    private final VideoProcessingService videoProcessingService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 任务结果回调
@@ -33,6 +38,8 @@ public class VisionCallbackController {
         if (!callback.isSuccess()) {
             log.error("框架层错误, taskId={}, code={}, message={}",
                     callback.getBusinessTaskId(), callback.getCode(), callback.getMessage());
+            // 仍然需要处理失败，以唤醒等待线程
+            handleFailure(callback);
             return ResponseEntity.ok("success");
         }
 
@@ -74,7 +81,11 @@ public class VisionCallbackController {
         return ResponseEntity.ok("success");
     }
 
+    /**
+     * 处理成功回调
+     */
     private void handleSuccess(VisionCallbackResponse<JsonNode> callback) {
+        String ability = callback.getAbility();
         JsonNode data = callback.getData();
 
         // 检查算法内部状态
@@ -85,24 +96,91 @@ public class VisionCallbackController {
             if (algorithmCode < 200 || algorithmCode >= 400) {
                 log.warn("算法内部错误, taskId={}, algorithmCode={}, algorithmMessage={}",
                         callback.getBusinessTaskId(), algorithmCode, algorithmMessage);
-                // TODO: 处理算法内部失败
+                handleFailure(callback);
                 return;
             }
         }
 
         log.info("任务执行成功, taskId={}, ability={}",
-                callback.getBusinessTaskId(), callback.getAbility());
+                callback.getBusinessTaskId(), ability);
 
-        // TODO: 根据 ability 分发到不同处理逻辑
-        // 提取 videoUrl / targetImageUrl 等
+        // 根据 ability 分发到不同处理逻辑
+        dispatchCallback(callback);
     }
 
+    /**
+     * 根据能力类型分发回调
+     */
+    private void dispatchCallback(VisionCallbackResponse<JsonNode> callback) {
+        String ability = callback.getAbility();
+        String callbackId = callback.getBusinessTaskId();
+
+        try {
+            switch (ability) {
+                case "Dreamface-WanAnimate-V1":
+                    videoProcessingService.notifyWanAnimateCallback(callback, callbackId);
+                    break;
+
+                case "Dreamface-Flux2-ImageGen-V1":
+                    videoProcessingService.notifyFlux2ImageGenCallback(callback, callbackId);
+                    break;
+
+                case "Dreamface-Lipsync-V1":
+                    videoProcessingService.notifyLipsyncCallback(callback, callbackId);
+                    break;
+
+                case "Dreamface-WanVideo-FLF-V1":
+                    videoProcessingService.notifyWanVideoFLFCallback(callback, callbackId);
+                    break;
+
+                default:
+                    log.warn("未知的ability类型: {}", ability);
+            }
+        } catch (Exception e) {
+            log.error("处理vision回调异常: ability={}, callbackId={}", ability, callbackId, e);
+        }
+    }
+
+    /**
+     * 处理失败回调
+     */
     private void handleFailure(VisionCallbackResponse<JsonNode> callback) {
         log.warn("任务执行失败, taskId={}, code={}, message={}",
                 callback.getBusinessTaskId(), callback.getCode(), callback.getMessage());
-        // TODO: 处理失败逻辑
+
+        String ability = callback.getAbility();
+        String callbackId = callback.getBusinessTaskId();
+
+        // 根据 ability 分发失败处理
+        try {
+            switch (ability) {
+                case "Dreamface-WanAnimate-V1":
+                    videoProcessingService.notifyWanAnimateCallback(callback, callbackId);
+                    break;
+
+                case "Dreamface-Flux2-ImageGen-V1":
+                    videoProcessingService.notifyFlux2ImageGenCallback(callback, callbackId);
+                    break;
+
+                case "Dreamface-Lipsync-V1":
+                    videoProcessingService.notifyLipsyncCallback(callback, callbackId);
+                    break;
+
+                case "Dreamface-WanVideo-FLF-V1":
+                    videoProcessingService.notifyWanVideoFLFCallback(callback, callbackId);
+                    break;
+
+                default:
+                    log.warn("未知的ability类型: {}", ability);
+            }
+        } catch (Exception e) {
+            log.error("处理vision失败回调异常: ability={}, callbackId={}", ability, callbackId, e);
+        }
     }
 
+    /**
+     * 处理取消回调
+     */
     private void handleCancelled(VisionCallbackResponse<JsonNode> callback) {
         log.info("任务已取消, taskId={}", callback.getBusinessTaskId());
         // TODO: 处理取消逻辑

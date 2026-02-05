@@ -1,8 +1,10 @@
 package org.example.newyear.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.newyear.dto.algorithm.vision.VisionCallbackResponse;
 import org.example.newyear.dto.callback.*;
 import org.example.newyear.dto.VideoCreateDTO;
 import org.example.newyear.entity.Spring2026CreationRecord;
@@ -303,6 +305,220 @@ public class VideoProcessingService {
         result.put("feature", callback.getFeature());
         result.put("errorMsg", callback.getErrorMsg());
         result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
+    }
+
+    // ======================== Vision算法回调处理 ========================
+
+    /**
+     * WanAnimate人物替换回调处理
+     */
+    public void notifyWanAnimateCallback(VisionCallbackResponse<JsonNode> callback, String callbackId) {
+        // 从callbackId中提取recordId和stepName
+        // 格式：callbackId = "recordId:stepName" 或 "recordId:stepName:uuid"
+        String[] parts = callbackId.split(":");
+        if (parts.length < 2) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = parts[1];  // 例如: "face_swap_0" 或 "face_swap_2"
+
+        log.info("处理WanAnimate回调: recordId={}, stepName={}", recordId, stepName);
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        boolean isSuccess = callback.isSuccess() && callback.getTaskStatus() == 3;
+
+        result.put("success", isSuccess);
+        result.put("timestamp", System.currentTimeMillis());
+
+        if (isSuccess && callback.getData() != null) {
+            JsonNode data = callback.getData();
+            // 提取 targetVideoUrl
+            if (data.has("targetVideoUrl")) {
+                String targetVideoUrl = data.get("targetVideoUrl").asText();
+                result.put("targetVideoUrl", targetVideoUrl);
+                log.info("WanAnimate成功: recordId={}, stepName={}, url={}", recordId, stepName, targetVideoUrl);
+            } else {
+                log.warn("WanAnimate回调未包含targetVideoUrl: recordId={}, stepName={}", recordId, stepName);
+                result.put("success", false);
+            }
+        } else {
+            String errorMsg = callback.getMessage();
+            result.put("errorMsg", errorMsg);
+            log.warn("WanAnimate失败: recordId={}, stepName={}, errorMsg={}", recordId, stepName, errorMsg);
+        }
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
+    }
+
+    /**
+     * Flux2多图生图回调处理
+     */
+    public void notifyFlux2ImageGenCallback(VisionCallbackResponse<JsonNode> callback, String callbackId) {
+        // 从callbackId中提取recordId和stepName
+        String[] parts = callbackId.split(":");
+        if (parts.length < 2) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = parts[1];  // "flux2_image_gen"
+
+        log.info("处理Flux2ImageGen回调: recordId={}, stepName={}", recordId, stepName);
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        boolean isSuccess = callback.isSuccess() && callback.getTaskStatus() == 3;
+
+        result.put("success", isSuccess);
+        result.put("timestamp", System.currentTimeMillis());
+
+        if (isSuccess && callback.getData() != null) {
+            JsonNode data = callback.getData();
+            // 提取 targetImageUrls 或 targetImageUrl
+            if (data.has("targetImageUrls")) {
+                JsonNode urlsNode = data.get("targetImageUrls");
+                List<String> urls = new ArrayList<>();
+                if (urlsNode.isArray()) {
+                    for (JsonNode urlNode : urlsNode) {
+                        urls.add(urlNode.asText());
+                    }
+                }
+                result.put("targetImageUrls", urls);
+                log.info("Flux2ImageGen成功: recordId={}, stepName={}, count={}", recordId, stepName, urls.size());
+            } else if (data.has("targetImageUrl")) {
+                String targetImageUrl = data.get("targetImageUrl").asText();
+                result.put("targetImageUrl", targetImageUrl);
+                result.put("targetImageUrls", Arrays.asList(targetImageUrl));
+                log.info("Flux2ImageGen成功(单图): recordId={}, stepName={}, url={}", recordId, stepName, targetImageUrl);
+            } else {
+                log.warn("Flux2ImageGen回调未包含图片URL: recordId={}, stepName={}", recordId, stepName);
+                result.put("success", false);
+            }
+        } else {
+            String errorMsg = callback.getMessage();
+            result.put("errorMsg", errorMsg);
+            log.warn("Flux2ImageGen失败: recordId={}, stepName={}, errorMsg={}", recordId, stepName, errorMsg);
+        }
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
+    }
+
+    /**
+     * Lipsync唇形同步回调处理
+     */
+    public void notifyLipsyncCallback(VisionCallbackResponse<JsonNode> callback, String callbackId) {
+        // 从callbackId中提取recordId和stepName
+        String[] parts = callbackId.split(":");
+        if (parts.length < 2) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = parts[1];  // "lipsync"
+
+        log.info("处理Lipsync回调: recordId={}, stepName={}", recordId, stepName);
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        boolean isSuccess = callback.isSuccess() && callback.getTaskStatus() == 3;
+
+        result.put("success", isSuccess);
+        result.put("timestamp", System.currentTimeMillis());
+
+        if (isSuccess && callback.getData() != null) {
+            JsonNode data = callback.getData();
+            // 提取 videoUrl
+            if (data.has("videoUrl")) {
+                String videoUrl = data.get("videoUrl").asText();
+                result.put("videoUrl", videoUrl);
+                log.info("Lipsync成功: recordId={}, stepName={}, url={}", recordId, stepName, videoUrl);
+            } else {
+                log.warn("Lipsync回调未包含videoUrl: recordId={}, stepName={}", recordId, stepName);
+                result.put("success", false);
+            }
+        } else {
+            String errorMsg = callback.getMessage();
+            result.put("errorMsg", errorMsg);
+            log.warn("Lipsync失败: recordId={}, stepName={}, errorMsg={}", recordId, stepName, errorMsg);
+        }
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
+    }
+
+    /**
+     * WanVideoFLF首尾帧回调处理
+     */
+    public void notifyWanVideoFLFCallback(VisionCallbackResponse<JsonNode> callback, String callbackId) {
+        // 从callbackId中提取recordId和stepName
+        String[] parts = callbackId.split(":");
+        if (parts.length < 2) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = parts[1];  // "wan_video_flf"
+
+        log.info("处理WanVideoFLF回调: recordId={}, stepName={}", recordId, stepName);
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        boolean isSuccess = callback.isSuccess() && callback.getTaskStatus() == 3;
+
+        result.put("success", isSuccess);
+        result.put("timestamp", System.currentTimeMillis());
+
+        if (isSuccess && callback.getData() != null) {
+            JsonNode data = callback.getData();
+            // 提取 targetVideoUrl
+            if (data.has("targetVideoUrl")) {
+                String targetVideoUrl = data.get("targetVideoUrl").asText();
+                result.put("targetVideoUrl", targetVideoUrl);
+                log.info("WanVideoFLF成功: recordId={}, stepName={}, url={}", recordId, stepName, targetVideoUrl);
+            } else {
+                log.warn("WanVideoFLF回调未包含targetVideoUrl: recordId={}, stepName={}", recordId, stepName);
+                result.put("success", false);
+            }
+        } else {
+            String errorMsg = callback.getMessage();
+            result.put("errorMsg", errorMsg);
+            log.warn("WanVideoFLF失败: recordId={}, stepName={}, errorMsg={}", recordId, stepName, errorMsg);
+        }
 
         // 存储到Redis（持久化）
         callbackResultManager.saveResult(recordId, stepName, result);

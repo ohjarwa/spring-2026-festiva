@@ -12,12 +12,10 @@ import org.example.newyear.mapper.Spring2026CreationRecordMapper;
 import org.example.newyear.util.JsonUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,16 +33,13 @@ public class VideoProcessingService {
 
     private final Spring2026CreationRecordMapper recordMapper;
     private final TemplateService templateService;
-    private final RedisTemplate<String, Object> redisTemplate;
     private final ApplicationContext applicationContext;
+    private final CallbackResultManager callbackResultManager;
 
     // 存储等待回调的CountDownLatch
     private final Map<String, CountDownLatch> callbackLatches = new ConcurrentHashMap<>();
-    // 存储回调结果
+    // 存储回调结果（临时，用于CountDownLatch等待获取）
     private final Map<String, Object> callbackResults = new ConcurrentHashMap<>();
-
-    private static final String CALLBACK_CACHE_PREFIX = "callback:";
-    private static final int CACHE_TTL = 3600; // 1小时
 
     // ======================== 视频生成流程 ========================
 
@@ -105,56 +100,106 @@ public class VideoProcessingService {
     /**
      * 人脸替换回调处理
      */
-    public void notifyFaceSwapCallback(VideoAlgorithmCallbackResponse response, FaceSwapCallbackData data) {
-        String taskId = extractTaskId(response);
-        log.info("处理人脸替换回调: taskId={}, targetVideoUrl={}", taskId, data.getTargetVideoUrl());
+    public void notifyFaceSwapCallback(VideoAlgorithmCallbackResponse response, FaceSwapCallbackData data, String callbackId) {
+        // 从callbackId中提取recordId
+        // 格式：callbackId = "recordId:uuid" 或 "recordId:stepName"
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
 
-        // 存储回调结果
-        storeCallbackResult(taskId, "face_swap", Map.of(
-                "success", response.getCode() == 0,
-                "targetVideoUrl", data.getTargetVideoUrl()
-        ));
+        String recordId = parts[0];
+        String stepName = "face_swap";
+
+        log.info("处理人脸替换回调: recordId={}, targetVideoUrl={}",
+                recordId, data.getTargetVideoUrl());
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", response.getCode() == 0);
+        result.put("targetVideoUrl", data.getTargetVideoUrl());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        log.info("人脸替换产物已保存: recordId={}, stepName={}, url={}",
+                recordId, stepName, data.getTargetVideoUrl());
 
         // 唤醒等待
-        wakeupLatch(taskId, "face_swap");
+        wakeupLatch(recordId, stepName);
     }
 
     /**
      * 多图生图回调处理
      */
-    public void notifyMultiImageGenerateCallback(VideoAlgorithmCallbackResponse response, MultiImageGenerateCallbackData data) {
-        String taskId = extractTaskId(response);
-        log.info("处理多图生图回调: taskId={}, fileUrls count={}",
-                taskId, data.getFileUrls() != null ? data.getFileUrls().size() : 0);
+    public void notifyMultiImageGenerateCallback(VideoAlgorithmCallbackResponse response, MultiImageGenerateCallbackData data, String callbackId) {
+        // 从callbackId中提取recordId
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
 
-        // 存储回调结果
-        storeCallbackResult(taskId, "multi_image_generate", Map.of(
-                "success", response.getCode() == 0,
-                "fileUrls", data.getFileUrls()
-        ));
+        String recordId = parts[0];
+        String stepName = "multi_image_generate";
+
+        log.info("处理多图生图回调: recordId={}, fileUrls count={}",
+                recordId, data.getFileUrls() != null ? data.getFileUrls().size() : 0);
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", response.getCode() == 0);
+        result.put("fileUrls", data.getFileUrls());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
 
         // 唤醒等待
-        wakeupLatch(taskId, "multi_image_generate");
+        wakeupLatch(recordId, stepName);
     }
 
     /**
      * 唇形同步回调处理
      */
-    public void notifyLipSyncCallback(VideoAlgorithmCallbackResponse response, LipSyncCallbackData data) {
-        String taskId = extractTaskId(response);
-        log.info("处理唇形同步回调: taskId={}, videoUrl={}, code={}, message={}",
-                taskId, data.getVideoUrl(), data.getCode(), data.getMessage());
+    public void notifyLipSyncCallback(VideoAlgorithmCallbackResponse response, LipSyncCallbackData data, String callbackId) {
+        // 从callbackId中提取recordId
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
 
-        // 存储回调结果
-        storeCallbackResult(taskId, "lip_sync", Map.of(
-                "success", data.getCode() == 0,
-                "videoUrl", data.getVideoUrl(),
-                "code", data.getCode(),
-                "message", data.getMessage()
-        ));
+        String recordId = parts[0];
+        String stepName = "lip_sync";
+
+        log.info("处理唇形同步回调: recordId={}, videoUrl={}, code={}, message={}",
+                recordId, data.getVideoUrl(), data.getCode(), data.getMessage());
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", data.getCode() == 0);
+        result.put("videoUrl", data.getVideoUrl());
+        result.put("code", data.getCode());
+        result.put("message", data.getMessage());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
 
         // 唤醒等待
-        wakeupLatch(taskId, "lip_sync");
+        wakeupLatch(recordId, stepName);
     }
 
     // ======================== 语音算法回调处理 ========================
@@ -163,58 +208,110 @@ public class VideoProcessingService {
      * 声音克隆回调处理
      */
     public void notifyVoiceCloneCallback(VoiceCloneCallbackDTO callback) {
-        String taskId = callback.getTaskId();
-        log.info("处理声音克隆回调: taskId={}, status={}, voiceId={}",
-                taskId, callback.getStatus(), callback.getVoiceId());
+        String callbackId = callback.getCallbackId();
 
-        // 存储回调结果
-        storeCallbackResult(taskId, "voice_clone", Map.of(
-                "success", "success".equals(callback.getStatus()),
-                "voiceId", callback.getVoiceId(),
-                "errorMsg", callback.getErrorMsg()
-        ));
+        // 从callbackId中提取recordId
+        // 格式：callbackId = "recordId:uuid"
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = "voice_clone";
+
+        log.info("处理声音克隆回调: recordId={}, status={}, voiceId={}",
+                recordId, callback.getStatus(), callback.getVoiceId());
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", "success".equals(callback.getStatus()));
+        result.put("voiceId", callback.getVoiceId());
+        result.put("errorMsg", callback.getErrorMsg());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
 
         // 唤醒等待
-        wakeupLatch(taskId, "voice_clone");
+        wakeupLatch(recordId, stepName);
     }
 
     /**
      * 声音合成TTS回调处理
      */
     public void notifyVoiceTtsCallback(VoiceTtsCallbackDTO callback) {
-        String taskId = callback.getTaskId();
-        log.info("处理声音合成回调: taskId={}, status={}, audioUrl={}",
-                taskId, callback.getStatus(), callback.getAudioUrl());
+        String callbackId = callback.getCallbackId();
 
-        // 存储回调结果
-        storeCallbackResult(taskId, "voice_tts", Map.of(
-                "success", "success".equals(callback.getStatus()),
-                "audioUrl", callback.getAudioUrl(),
-                "errorMsg", callback.getErrorMsg()
-        ));
+        // 从callbackId中提取recordId
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = "voice_tts";
+
+        log.info("处理声音合成回调: recordId={}, status={}, audioUrl={}",
+                recordId, callback.getStatus(), callback.getAudioUrl());
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", "success".equals(callback.getStatus()));
+        result.put("audioUrl", callback.getAudioUrl());
+        result.put("errorMsg", callback.getErrorMsg());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
 
         // 唤醒等待
-        wakeupLatch(taskId, "voice_tts");
+        wakeupLatch(recordId, stepName);
     }
 
     /**
      * 歌曲特征提取回调处理
      */
     public void notifySongFeatureExtractCallback(SongFeatureExtractCallbackDTO callback) {
-        String taskId = callback.getTaskId();
-        log.info("处理歌曲特征提取回调: taskId={}, status={}, featureSize={}",
-                taskId, callback.getStatus(),
+        String callbackId = callback.getCallbackId();
+
+        // 从callbackId中提取recordId
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = "song_feature_extract";
+
+        log.info("处理歌曲特征提取回调: recordId={}, status={}, featureSize={}",
+                recordId, callback.getStatus(),
                 callback.getFeature() != null ? callback.getFeature().size() : 0);
 
-        // 存储回调结果
-        storeCallbackResult(taskId, "song_feature_extract", Map.of(
-                "success", "success".equals(callback.getStatus()),
-                "feature", callback.getFeature(),
-                "errorMsg", callback.getErrorMsg()
-        ));
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", "success".equals(callback.getStatus()));
+        result.put("feature", callback.getFeature());
+        result.put("errorMsg", callback.getErrorMsg());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
 
         // 唤醒等待
-        wakeupLatch(taskId, "song_feature_extract");
+        wakeupLatch(recordId, stepName);
     }
 
     // ======================== 等待回调方法 ========================
@@ -277,20 +374,6 @@ public class VideoProcessingService {
     // ======================== 辅助方法 ========================
 
     /**
-     * 存储回调结果到Redis和内存
-     */
-    private void storeCallbackResult(String taskId, String stepName, Map<String, Object> result) {
-        // 存储到Redis（持久化）
-        String cacheKey = CALLBACK_CACHE_PREFIX + taskId + ":" + stepName;
-        redisTemplate.opsForValue().set(cacheKey, result, CACHE_TTL, TimeUnit.SECONDS);
-
-        // 存储到内存（用于CountDownLatch等待获取）
-        callbackResults.put(taskId + ":" + stepName, result);
-
-        log.debug("存储回调结果: taskId={}, stepName={}", taskId, stepName);
-    }
-
-    /**
      * 唤醒CountDownLatch
      */
     private void wakeupLatch(String taskId, String stepName) {
@@ -303,13 +386,10 @@ public class VideoProcessingService {
     }
 
     /**
-     * 从响应中提取taskId
-     * （由于不同算法服务可能有不同的字段名，这里统一处理）
+     * 从recordId和stepName构建callbackId
      */
-    private String extractTaskId(VideoAlgorithmCallbackResponse response) {
-        // 如果response中有taskId字段
-        // TODO: 根据实际调整，这里假设taskId通过某种方式传递
-        return "unknown_task_id";
+    private String buildCallbackId(String recordId, String stepName) {
+        return recordId + ":" + stepName;
     }
 
     /**

@@ -27,19 +27,23 @@ public class VideoAlgorithmCallbackController {
     /**
      * 人脸替换回调接口
      *
-     * @param response 回调响应
+     * @param response   回调响应
+     * @param callbackId 回调ID（格式：recordId:stepName 或 recordId:uuid）
      * @return 处理结果
      */
     @PostMapping("/face-swap")
-    public Map<String, Object> handleFaceSwapCallback(@RequestBody VideoAlgorithmCallbackResponse response) {
-        log.info("收到人脸替换回调: code={}, message={}", response.getCode(), response.getMessage());
+    public Map<String, Object> handleFaceSwapCallback(
+            @RequestBody VideoAlgorithmCallbackResponse response,
+            @RequestParam String callbackId) {
+        log.info("收到人脸替换回调: callbackId={}, code={}, message={}",
+                callbackId, response.getCode(), response.getMessage());
 
         try {
             // 解析data为FaceSwapCallbackData
             FaceSwapCallbackData data = objectMapper.convertValue(response.getData(), FaceSwapCallbackData.class);
             log.info("人脸替换结果: targetVideoUrl={}", data.getTargetVideoUrl());
 
-            videoProcessingService.notifyFaceSwapCallback(response, data);
+            videoProcessingService.notifyFaceSwapCallback(response, data, callbackId);
             return buildSuccessResponse();
         } catch (Exception e) {
             log.error("处理人脸替换回调失败", e);
@@ -50,12 +54,16 @@ public class VideoAlgorithmCallbackController {
     /**
      * 多图生图回调接口
      *
-     * @param response 回调响应
+     * @param response   回调响应
+     * @param callbackId 回调ID（格式：recordId:stepName 或 recordId:uuid）
      * @return 处理结果
      */
     @PostMapping("/multi-image-generate")
-    public Map<String, Object> handleMultiImageGenerateCallback(@RequestBody VideoAlgorithmCallbackResponse response) {
-        log.info("收到多图生图回调: code={}, message={}", response.getCode(), response.getMessage());
+    public Map<String, Object> handleMultiImageGenerateCallback(
+            @RequestBody VideoAlgorithmCallbackResponse response,
+            @RequestParam String callbackId) {
+        log.info("收到多图生图回调: callbackId={}, code={}, message={}",
+                callbackId, response.getCode(), response.getMessage());
 
         try {
             // 解析data为MultiImageGenerateCallbackData
@@ -64,7 +72,7 @@ public class VideoAlgorithmCallbackController {
             log.info("多图生图结果: fileUrls count={}",
                     data.getFileUrls() != null ? data.getFileUrls().size() : 0);
 
-            videoProcessingService.notifyMultiImageGenerateCallback(response, data);
+            videoProcessingService.notifyMultiImageGenerateCallback(response, data, callbackId);
             return buildSuccessResponse();
         } catch (Exception e) {
             log.error("处理多图生图回调失败", e);
@@ -75,12 +83,16 @@ public class VideoAlgorithmCallbackController {
     /**
      * 唇形同步回调接口
      *
-     * @param response 回调响应
+     * @param response   回调响应
+     * @param callbackId 回调ID（格式：recordId:stepName 或 recordId:uuid）
      * @return 处理结果
      */
     @PostMapping("/lip-sync")
-    public Map<String, Object> handleLipSyncCallback(@RequestBody VideoAlgorithmCallbackResponse response) {
-        log.info("收到唇形同步回调: code={}, message={}", response.getCode(), response.getMessage());
+    public Map<String, Object> handleLipSyncCallback(
+            @RequestBody VideoAlgorithmCallbackResponse response,
+            @RequestParam String callbackId) {
+        log.info("收到唇形同步回调: callbackId={}, code={}, message={}",
+                callbackId, response.getCode(), response.getMessage());
 
         try {
             // 解析data为LipSyncCallbackData
@@ -88,7 +100,7 @@ public class VideoAlgorithmCallbackController {
             log.info("唇形同步结果: videoUrl={}, code={}, message={}",
                     data.getVideoUrl(), data.getCode(), data.getMessage());
 
-            videoProcessingService.notifyLipSyncCallback(response, data);
+            videoProcessingService.notifyLipSyncCallback(response, data, callbackId);
             return buildSuccessResponse();
         } catch (Exception e) {
             log.error("处理唇形同步回调失败", e);

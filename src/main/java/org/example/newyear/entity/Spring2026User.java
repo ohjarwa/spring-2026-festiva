@@ -130,4 +130,9 @@ public class Spring2026User implements Serializable {
      * 扩展数据
      */
     private String extraData;
+
+    /**
+     * 管理员级别 0=普通用户 1=审核员 2=管理员 3=超级管理员
+     */
+    private Integer adminLevel;
 }

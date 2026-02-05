@@ -3,89 +3,70 @@ package org.example.newyear.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.example.newyear.dto.AlgorithmCallbackRequest;
+import org.example.newyear.dto.callback.*;
 import org.example.newyear.dto.VideoCreateDTO;
 import org.example.newyear.entity.Spring2026CreationRecord;
 import org.example.newyear.entity.Spring2026Template;
 import org.example.newyear.exception.BusinessException;
 import org.example.newyear.mapper.Spring2026CreationRecordMapper;
-import org.example.newyear.service.algorithm.*;
 import org.example.newyear.util.JsonUtil;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 视频处理服务（核心流程编排）
+ * 视频处理服务（核心流程编排 + 回调处理）
  *
  * @author Claude
- * @since 2026-02-04
+ * @since 2026-02-05
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class VideoProcessingService {
 
-    private final FaceSwapService faceSwapService;
-    private final LipSyncService lipSyncService;
-    private final VoiceCloneService voiceCloneService;
-    private final VoiceTtsService voiceTtsService;
-    private final TemplateService templateService;
     private final Spring2026CreationRecordMapper recordMapper;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final TemplateService templateService;
+    private final ApplicationContext applicationContext;
+    private final CallbackResultManager callbackResultManager;
 
-    private static final String TASK_CACHE_PREFIX = "task:";
-    private static final String CALLBACK_CACHE_PREFIX = "callback:";
-    private static final int CACHE_TTL = 3600; // 1小时
+    // 存储等待回调的CountDownLatch
+    private final Map<String, CountDownLatch> callbackLatches = new ConcurrentHashMap<>();
+    // 存储回调结果（临时，用于CountDownLatch等待获取）
+    private final Map<String, Object> callbackResults = new ConcurrentHashMap<>();
+
+    // ======================== 视频生成流程 ========================
 
     /**
      * 异步处理视频生成任务
-     *
-     * @param recordId 记录ID
-     * @param userId   用户ID
-     * @param dto      创建视频请求
      */
     @Async("videoTaskExecutor")
     public void processVideoCreation(String recordId, String userId, VideoCreateDTO dto) {
-        log.info("开始处理视频生成任务: recordId={}, userId={}", recordId, userId);
+        log.info("开始处理视频生成任务: recordId={}, userId={}, templateId={}",
+                recordId, userId, dto.getTemplateId());
 
         try {
             // 1. 更新状态：生成中
             updateRecordStatus(recordId, 1, 0);
 
-            // 2. 获取模板配置
-            Map<String, Object> taskConfig = templateService.getTaskConfig(dto.getTemplateId());
-            List<Map<String, Object>> steps = (List<Map<String, Object>>) taskConfig.get("steps");
-
-            if (steps == null || steps.isEmpty()) {
-                throw new BusinessException(40007, "模板配置错误");
-            }
-
-            // 3. 准备上下文数据
-            Map<String, Object> context = new HashMap<>();
-            context.put("templateId", dto.getTemplateId());
-            context.put("user_photo_url", dto.getMaterials().getPhotos().get(0));
-            context.put("user_audio_url", dto.getMaterials().getAudios().get(0));
-            // 从模板表获取template_video_url
+            // 2. 获取模板信息
             Spring2026Template template = templateService.getTemplateById(dto.getTemplateId());
-            context.put("template_video_url", template.getTemplateUrl());
 
-            // 4. 执行流程
-            Map<String, Object> executionResult = executeSteps(recordId, steps, context);
+            // 3. 根据模板ID选择对应的处理器
+            ITemplateProcessor processor = getTemplateProcessor(template.getTemplateId());
+
+            // 4. 执行模板流程
+            String finalVideoUrl = processor.process(recordId, template, dto);
 
             // 5. 更新最终结果
-            if (executionResult.containsKey("final_video_url")) {
-                String finalVideoUrl = (String) executionResult.get("final_video_url");
-                updateRecordComplete(recordId, finalVideoUrl);
-                log.info("视频生成完成: recordId={}, url={}", recordId, finalVideoUrl);
-            } else {
-                throw new BusinessException(40006, "视频生成失败：未生成最终结果");
-            }
+            updateRecordComplete(recordId, finalVideoUrl);
+            log.info("视频生成完成: recordId={}, url={}", recordId, finalVideoUrl);
 
         } catch (Exception e) {
             log.error("视频生成失败: recordId={}", recordId, e);
@@ -94,295 +75,321 @@ public class VideoProcessingService {
     }
 
     /**
-     * 执行步骤流程
+     * 根据模板ID获取对应的处理器
      */
-    private Map<String, Object> executeSteps(String recordId, List<Map<String, Object>> steps, Map<String, Object> context) {
-        Map<String, Object> executionResult = new HashMap<>();
-        Map<String, CompletableFuture<Map<String, Object>>> futures = new ConcurrentHashMap<>();
+    private ITemplateProcessor getTemplateProcessor(String templateId) {
+        String templateNum = templateId.replace("tpl_", "");
 
-        for (Map<String, Object> stepConfig : steps) {
-            String stepName = (String) stepConfig.get("step_name");
-            String stepType = (String) stepConfig.get("step_type");
+        try {
+            int num = Integer.parseInt(templateNum);
 
-            // 检查依赖
-            List<String> dependsOn = (List<String>) stepConfig.get("depends_on");
-            if (dependsOn != null && !dependsOn.isEmpty()) {
-                // 等待依赖步骤完成
-                for (String dep : dependsOn) {
-                    CompletableFuture<Map<String, Object>> depFuture = futures.get(dep);
-                    if (depFuture != null) {
-                        try {
-                            Map<String, Object> depResult = depFuture.get(5, TimeUnit.MINUTES);
-                            executionResult.putAll(depResult);
-                        } catch (Exception e) {
-                            log.error("等待依赖步骤失败: dep={}", dep, e);
-                            throw new RuntimeException("依赖步骤执行失败: " + dep, e);
-                        }
-                    }
-                }
-            }
-
-            // 执行当前步骤
-            if ("video_process".equals(stepType)) {
-                futures.put(stepName, executeVideoStep(recordId, stepConfig, context, executionResult));
-            } else if ("audio_process".equals(stepType)) {
-                futures.put(stepName, executeAudioStep(recordId, stepConfig, context, executionResult));
-            }
-
-            // 更新进度
-            updateProgress(recordId, steps.size(), executionResult.size());
-        }
-
-        // 等待所有步骤完成
-        for (Map.Entry<String, CompletableFuture<Map<String, Object>>> entry : futures.entrySet()) {
-            try {
-                Map<String, Object> result = entry.getValue().get(5, TimeUnit.MINUTES);
-                executionResult.putAll(result);
-            } catch (Exception e) {
-                log.error("步骤执行失败: step={}", entry.getKey(), e);
-                throw new RuntimeException("步骤执行失败: " + entry.getKey(), e);
-            }
-        }
-
-        return executionResult;
-    }
-
-    /**
-     * 执行视频处理步骤（异步）
-     */
-    private CompletableFuture<Map<String, Object>> executeVideoStep(
-            String recordId, Map<String, Object> stepConfig, Map<String, Object> context, Map<String, Object> executionResult) {
-
-        return CompletableFuture.supplyAsync(() -> {
-            String stepName = (String) stepConfig.get("step_name");
-            String serviceName = (String) stepConfig.get("service");
-            String methodName = (String) stepConfig.get("method");
-            Map<String, String> inputMapping = (Map<String, String>) stepConfig.get("input_mapping");
-
-            log.info("执行视频步骤: recordId={}, step={}, service={}, method={}",
-                    recordId, stepName, serviceName, methodName);
-
-            try {
-                // 解析输入参数
-                Map<String, String> params = resolveInputMapping(inputMapping, context, executionResult);
-
-                // 调用服务
-                AlgorithmResponse response;
-                if ("faceSwapService".equals(serviceName)) {
-                    FaceSwapRequest request = new FaceSwapRequest();
-                    request.setVideoUrl(params.get("videoUrl"));
-                    request.setFaceImageUrl(params.get("faceImageUrl"));
-                    request.setCallbackUrl(buildCallbackUrl(recordId, stepName, "video"));
-
-                    response = faceSwapService.swapFace(request);
-
-                } else if ("lipSyncService".equals(serviceName)) {
-                    LipSyncRequest request = new LipSyncRequest();
-                    request.setVideoUrl(params.get("videoUrl"));
-                    request.setAudioUrl(params.get("audioUrl"));
-                    request.setCallbackUrl(buildCallbackUrl(recordId, stepName, "video"));
-
-                    response = lipSyncService.syncLip(request);
-
-                } else {
-                    throw new IllegalArgumentException("未知服务: " + serviceName);
-                }
-
-                // 处理响应
-                if (response.getCode() == 0 && response.getData() != null) {
-                    String taskId = response.getData().getTaskId();
-
-                    // 如果是异步任务，等待回调
-                    if (taskId != null && !taskId.isEmpty()) {
-                        Map<String, Object> result = waitForAsyncCallback(recordId, stepName, 300);
-                        return Collections.singletonMap((String) stepConfig.get("output_key"), result.get("resultUrl"));
-                    } else {
-                        // 同步返回
-                        return Collections.singletonMap((String) stepConfig.get("output_key"), response.getData().getResultUrl());
-                    }
-                } else {
-                    throw new RuntimeException("服务调用失败: " + response.getMessage());
-                }
-
-            } catch (Exception e) {
-                log.error("视频步骤执行失败: recordId={}, step={}", recordId, stepName, e);
-                throw new RuntimeException(e);
-            }
-        });
-    }
-
-    /**
-     * 执行音频处理步骤（异步）
-     */
-    private CompletableFuture<Map<String, Object>> executeAudioStep(
-            String recordId, Map<String, Object> stepConfig, Map<String, Object> context, Map<String, Object> executionResult) {
-
-        return CompletableFuture.supplyAsync(() -> {
-            String stepName = (String) stepConfig.get("step_name");
-            String serviceName = (String) stepConfig.get("service");
-            String methodName = (String) stepConfig.get("method");
-            Map<String, String> inputMapping = (Map<String, String>) stepConfig.get("input_mapping");
-
-            log.info("执行音频步骤: recordId={}, step={}, service={}, method={}",
-                    recordId, stepName, serviceName, methodName);
-
-            try {
-                // 解析输入参数
-                Map<String, String> params = resolveInputMapping(inputMapping, context, executionResult);
-
-                // 调用服务
-                AlgorithmResponse response;
-                if ("voiceCloneService".equals(serviceName)) {
-                    VoiceCloneRequest request = new VoiceCloneRequest();
-                    request.setAudioUrl(params.get("audioUrl"));
-                    request.setCallbackUrl(buildCallbackUrl(recordId, stepName, "audio"));
-
-                    response = voiceCloneService.cloneVoice(request);
-
-                } else if ("voiceTtsService".equals(serviceName)) {
-                    VoiceTtsRequest request = new VoiceTtsRequest();
-                    request.setVoiceId(params.get("voiceId"));
-                    request.setText(params.get("text"));
-                    request.setCallbackUrl(buildCallbackUrl(recordId, stepName, "audio"));
-
-                    response = voiceTtsService.synthesizeVoice(request);
-
-                } else {
-                    throw new IllegalArgumentException("未知服务: " + serviceName);
-                }
-
-                // 处理响应
-                if (response.getCode() == 0 && response.getData() != null) {
-                    String taskId = response.getData().getTaskId();
-
-                    // 如果是异步任务，等待回调
-                    if (taskId != null && !taskId.isEmpty()) {
-                        Map<String, Object> result = waitForAsyncCallback(recordId, stepName, 300);
-                        return Collections.singletonMap((String) stepConfig.get("output_key"), result.get("resultUrl"));
-                    } else {
-                        // 同步返回
-                        String outputKey = (String) stepConfig.get("output_key");
-                        Object value = "voiceId".equals(outputKey) ? response.getData().getTaskId() : response.getData().getResultUrl();
-                        return Collections.singletonMap(outputKey, value);
-                    }
-                } else {
-                    throw new RuntimeException("服务调用失败: " + response.getMessage());
-                }
-
-            } catch (Exception e) {
-                log.error("音频步骤执行失败: recordId={}, step={}", recordId, stepName, e);
-                throw new RuntimeException(e);
-            }
-        });
-    }
-
-    /**
-     * 等待异步回调
-     */
-    private Map<String, Object> waitForAsyncCallback(String recordId, String stepName, int timeoutSeconds) {
-        String cacheKey = CALLBACK_CACHE_PREFIX + recordId + ":" + stepName;
-
-        // 轮询等待回调
-        for (int i = 0; i < timeoutSeconds; i++) {
-            Map<String, Object> callbackData = (Map<String, Object>) redisTemplate.opsForValue().get(cacheKey);
-            if (callbackData != null) {
-                log.info("收到异步回调: recordId={}, step={}", recordId, stepName);
-                return callbackData;
-            }
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException("等待回调被中断", e);
-            }
-        }
-
-        throw new RuntimeException("等待回调超时: recordId=" + recordId + ", step=" + stepName);
-    }
-
-    /**
-     * 解析输入参数映射
-     */
-    private Map<String, String> resolveInputMapping(Map<String, String> inputMapping, Map<String, Object> context, Map<String, Object> executionResult) {
-        Map<String, String> params = new HashMap<>();
-
-        for (Map.Entry<String, String> entry : inputMapping.entrySet()) {
-            String value = entry.getValue();
-
-            // 替换上下文变量
-            if (value.startsWith("{{") && value.endsWith("}}")) {
-                String key = value.substring(2, value.length() - 2);
-
-                // 优先从executionResult获取（前面步骤的结果）
-                Object result = executionResult.get(key);
-                if (result != null) {
-                    params.put(entry.getKey(), result.toString());
-                    continue;
-                }
-
-                // 从context获取
-                Object contextValue = context.get(key);
-                if (contextValue != null) {
-                    params.put(entry.getKey(), contextValue.toString());
-                }
+            if (num >= 1 && num <= 4) {
+                return applicationContext.getBean("template1to4Processor", ITemplateProcessor.class);
+            } else if (num >= 5 && num <= 8) {
+                return applicationContext.getBean("template5to8Processor", ITemplateProcessor.class);
             } else {
-                params.put(entry.getKey(), value);
+                throw new BusinessException(40007, "不支持的模板编号: " + num);
             }
+        } catch (NumberFormatException e) {
+            throw new BusinessException(40007, "无效的模板ID格式: " + templateId);
+        }
+    }
+
+    // ======================== 回调处理方法 ========================
+
+    /**
+     * 人脸替换回调处理
+     */
+    public void notifyFaceSwapCallback(VideoAlgorithmCallbackResponse response, FaceSwapCallbackData data, String callbackId) {
+        // 从callbackId中提取recordId
+        // 格式：callbackId = "recordId:uuid" 或 "recordId:stepName"
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
         }
 
-        return params;
+        String recordId = parts[0];
+        String stepName = "face_swap";
+
+        log.info("处理人脸替换回调: recordId={}, targetVideoUrl={}",
+                recordId, data.getTargetVideoUrl());
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", response.getCode() == 0);
+        result.put("targetVideoUrl", data.getTargetVideoUrl());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        log.info("人脸替换产物已保存: recordId={}, stepName={}, url={}",
+                recordId, stepName, data.getTargetVideoUrl());
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
     }
 
     /**
-     * 构建回调URL
+     * 多图生图回调处理
      */
-    private String buildCallbackUrl(String recordId, String stepName, String type) {
-        // TODO: 从配置文件读取服务器地址
-        return "http://your-domain.com/api/callback/" + type + "?recordId=" + recordId + "&step=" + stepName;
+    public void notifyMultiImageGenerateCallback(VideoAlgorithmCallbackResponse response, MultiImageGenerateCallbackData data, String callbackId) {
+        // 从callbackId中提取recordId
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = "multi_image_generate";
+
+        log.info("处理多图生图回调: recordId={}, fileUrls count={}",
+                recordId, data.getFileUrls() != null ? data.getFileUrls().size() : 0);
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", response.getCode() == 0);
+        result.put("fileUrls", data.getFileUrls());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
     }
 
     /**
-     * 处理视频回调
+     * 唇形同步回调处理
      */
-    public void handleVideoCallback(AlgorithmCallbackRequest request) {
-        String recordId = request.getTaskId(); // 这里的taskId实际是recordId
-        String stepName = request.getStepName();
+    public void notifyLipSyncCallback(VideoAlgorithmCallbackResponse response, LipSyncCallbackData data, String callbackId) {
+        // 从callbackId中提取recordId
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
 
-        log.info("处理视频回调: recordId={}, step={}, status={}", recordId, stepName, request.getStatus());
+        String recordId = parts[0];
+        String stepName = "lip_sync";
 
-        // 存储回调结果到Redis
-        String cacheKey = CALLBACK_CACHE_PREFIX + recordId + ":" + stepName;
-        Map<String, Object> callbackData = new HashMap<>();
-        callbackData.put("status", request.getStatus());
-        callbackData.put("resultUrl", request.getResultUrl());
-        callbackData.put("errorMessage", request.getErrorMessage());
+        log.info("处理唇形同步回调: recordId={}, videoUrl={}, code={}, message={}",
+                recordId, data.getVideoUrl(), data.getCode(), data.getMessage());
 
-        redisTemplate.opsForValue().set(cacheKey, callbackData, CACHE_TTL, TimeUnit.SECONDS);
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", data.getCode() == 0);
+        result.put("videoUrl", data.getVideoUrl());
+        result.put("code", data.getCode());
+        result.put("message", data.getMessage());
+        result.put("timestamp", System.currentTimeMillis());
 
-        // 更新任务执行详情
-        updateTaskExecution(recordId, stepName, "success".equals(request.getStatus()) ? "completed" : "failed", request.getResultUrl());
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
+    }
+
+    // ======================== 语音算法回调处理 ========================
+
+    /**
+     * 声音克隆回调处理
+     */
+    public void notifyVoiceCloneCallback(VoiceCloneCallbackDTO callback) {
+        String callbackId = callback.getCallbackId();
+
+        // 从callbackId中提取recordId
+        // 格式：callbackId = "recordId:uuid"
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = "voice_clone";
+
+        log.info("处理声音克隆回调: recordId={}, status={}, voiceId={}",
+                recordId, callback.getStatus(), callback.getVoiceId());
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", "success".equals(callback.getStatus()));
+        result.put("voiceId", callback.getVoiceId());
+        result.put("errorMsg", callback.getErrorMsg());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
     }
 
     /**
-     * 处理音频回调
+     * 声音合成TTS回调处理
      */
-    public void handleAudioCallback(AlgorithmCallbackRequest request) {
-        String recordId = request.getTaskId();
-        String stepName = request.getStepName();
+    public void notifyVoiceTtsCallback(VoiceTtsCallbackDTO callback) {
+        String callbackId = callback.getCallbackId();
 
-        log.info("处理音频回调: recordId={}, step={}, status={}", recordId, stepName, request.getStatus());
+        // 从callbackId中提取recordId
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
 
-        // 存储回调结果到Redis
-        String cacheKey = CALLBACK_CACHE_PREFIX + recordId + ":" + stepName;
-        Map<String, Object> callbackData = new HashMap<>();
-        callbackData.put("status", request.getStatus());
-        callbackData.put("resultUrl", request.getResultUrl());
-        callbackData.put("errorMessage", request.getErrorMessage());
+        String recordId = parts[0];
+        String stepName = "voice_tts";
 
-        redisTemplate.opsForValue().set(cacheKey, callbackData, CACHE_TTL, TimeUnit.SECONDS);
+        log.info("处理声音合成回调: recordId={}, status={}, audioUrl={}",
+                recordId, callback.getStatus(), callback.getAudioUrl());
 
-        // 更新任务执行详情
-        updateTaskExecution(recordId, stepName, "success".equals(request.getStatus()) ? "completed" : "failed", request.getResultUrl());
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", "success".equals(callback.getStatus()));
+        result.put("audioUrl", callback.getAudioUrl());
+        result.put("errorMsg", callback.getErrorMsg());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
+    }
+
+    /**
+     * 歌曲特征提取回调处理
+     */
+    public void notifySongFeatureExtractCallback(SongFeatureExtractCallbackDTO callback) {
+        String callbackId = callback.getCallbackId();
+
+        // 从callbackId中提取recordId
+        String[] parts = callbackId.split(":");
+        if (parts.length < 1) {
+            log.warn("callbackId格式错误: {}", callbackId);
+            return;
+        }
+
+        String recordId = parts[0];
+        String stepName = "song_feature_extract";
+
+        log.info("处理歌曲特征提取回调: recordId={}, status={}, featureSize={}",
+                recordId, callback.getStatus(),
+                callback.getFeature() != null ? callback.getFeature().size() : 0);
+
+        // 保存回调产物
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", "success".equals(callback.getStatus()));
+        result.put("feature", callback.getFeature());
+        result.put("errorMsg", callback.getErrorMsg());
+        result.put("timestamp", System.currentTimeMillis());
+
+        // 存储到Redis（持久化）
+        callbackResultManager.saveResult(recordId, stepName, result);
+
+        // 存储到内存（用于CountDownLatch等待获取）
+        callbackResults.put(recordId + ":" + stepName, result);
+
+        // 唤醒等待
+        wakeupLatch(recordId, stepName);
+    }
+
+    // ======================== 等待回调方法 ========================
+
+    /**
+     * 调用算法服务并等待回调（通用方法）
+     *
+     * @param recordId      记录ID
+     * @param stepName      步骤名称
+     * @param callSupplier  算法调用逻辑
+     * @param timeoutSeconds 超时时间（秒）
+     * @return 回调结果
+     */
+    public Map<String, Object> callAndWaitForCallback(
+            String recordId,
+            String stepName,
+            java.util.function.Supplier<Object> callSupplier,
+            int timeoutSeconds) throws Exception {
+
+        // 1. 创建CountDownLatch
+        String latchKey = recordId + ":" + stepName;
+        CountDownLatch latch = new CountDownLatch(1);
+        callbackLatches.put(latchKey, latch);
+
+        try {
+            // 2. 调用算法服务
+            log.info("调用算法服务: recordId={}, stepName={}", recordId, stepName);
+            Object response = callSupplier.get();
+
+            // 3. 等待回调（阻塞当前线程）
+            boolean success = latch.await(timeoutSeconds, TimeUnit.SECONDS);
+
+            if (!success) {
+                throw new RuntimeException("等待算法回调超时: recordId=" + recordId + ", step=" + stepName);
+            }
+
+            // 4. 获取回调结果
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = (Map<String, Object>) callbackResults.remove(latchKey);
+
+            if (result == null) {
+                throw new RuntimeException("未收到回调结果: recordId=" + recordId + ", step=" + stepName);
+            }
+
+            Boolean isSuccess = (Boolean) result.get("success");
+            if (isSuccess == null || !isSuccess) {
+                String errorMsg = (String) result.get("errorMsg");
+                throw new RuntimeException("算法处理失败: " + errorMsg);
+            }
+
+            log.info("算法处理成功: recordId={}, stepName={}", recordId, stepName);
+            return result;
+
+        } finally {
+            // 清理
+            callbackLatches.remove(latchKey);
+        }
+    }
+
+    // ======================== 辅助方法 ========================
+
+    /**
+     * 唤醒CountDownLatch
+     */
+    private void wakeupLatch(String taskId, String stepName) {
+        String latchKey = taskId + ":" + stepName;
+        CountDownLatch latch = callbackLatches.remove(latchKey);
+        if (latch != null) {
+            latch.countDown();
+            log.info("唤醒等待线程: taskId={}, stepName={}", taskId, stepName);
+        }
+    }
+
+    /**
+     * 从recordId和stepName构建callbackId
+     */
+    private String buildCallbackId(String recordId, String stepName) {
+        return recordId + ":" + stepName;
     }
 
     /**
@@ -396,15 +403,6 @@ public class VideoProcessingService {
                         .progress(progress)
                         .build()
         );
-    }
-
-    /**
-     * 更新进度
-     */
-    private void updateProgress(String recordId, int totalSteps, int completedSteps) {
-        int progress = (int) ((completedSteps / (double) totalSteps) * 100);
-        updateRecordStatus(recordId, 1, progress);
-        log.info("更新进度: recordId={}, progress={}%", recordId, progress);
     }
 
     /**
@@ -443,13 +441,11 @@ public class VideoProcessingService {
      * 更新任务执行详情
      */
     private void updateTaskExecution(String recordId, String stepName, String status, String resultUrl) {
-        // 从数据库获取记录
         Spring2026CreationRecord record = recordMapper.selectById(recordId);
         if (record == null) {
             return;
         }
 
-        // 解析现有执行详情
         Map<String, Object> execution;
         try {
             if (record.getTaskExecution() != null) {
@@ -465,7 +461,6 @@ public class VideoProcessingService {
             execution.put("steps", stepsMap);
         }
 
-        // 更新步骤信息
         Map<String, Object> steps = (Map<String, Object>) execution.get("steps");
         Map<String, Object> stepInfo = new HashMap<>();
         stepInfo.put("status", status);
@@ -473,7 +468,6 @@ public class VideoProcessingService {
         stepInfo.put("end_time", System.currentTimeMillis());
         steps.put(stepName, stepInfo);
 
-        // 保存回数据库
         record.setTaskExecution(JsonUtil.toJson(execution));
         recordMapper.updateById(record);
     }

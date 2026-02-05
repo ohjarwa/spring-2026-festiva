@@ -46,7 +46,19 @@ public enum BusinessCode {
     ERROR_AUDIT_FAILED(40015, "审核失败"),
     ERROR_AUDIT_PENDING(40016, "审核中，请稍后"),
     ERROR_AUDIT_REJECTED(40017, "审核未通过"),
-    ERROR_AUDIT_NOT_FOUND(40018, "审核记录不存在");
+    ERROR_AUDIT_NOT_FOUND(40018, "审核记录不存在"),
+
+    // ========== 风控相关 ==========
+    ERROR_RISK_CONTROL_FAILED(41001, "风控校验失败"),
+    ERROR_CONTENT_UNSAFE(41002, "内容不合规"),
+    ERROR_AUDIO_VIOLATION(41003, "音频违规"),
+    ERROR_IMAGE_VIOLATION(41004, "图片违规"),
+
+    // ========== 管理员相关 ==========
+    ERROR_PERMISSION_DENIED(40301, "权限不足"),
+    ERROR_ADMIN_REQUIRED(40302, "需要管理员权限"),
+    ERROR_NOT_SUPER_ADMIN(40303, "需要超级管理员权限"),
+    ERROR_CANNOT_TAKE_DOWN(40304, "该作品无法下线");
 
     private final Integer code;
     private final String message;

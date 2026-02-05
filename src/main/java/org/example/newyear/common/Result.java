@@ -69,6 +69,13 @@ public class Result<T> implements Serializable {
     }
 
     /**
+     * 失败响应（默认错误码500）
+     */
+    public static <T> Result<T> error(String message) {
+        return new Result<>(500, message, null);
+    }
+
+    /**
      * 失败响应（使用业务错误码）
      */
     public static <T> Result<T> error(BusinessCode businessCode) {

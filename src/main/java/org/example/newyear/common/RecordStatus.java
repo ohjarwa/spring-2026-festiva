@@ -29,7 +29,12 @@ public enum RecordStatus {
     /**
      * 失败
      */
-    FAILED(3, "failed", "失败");
+    FAILED(3, "failed", "失败"),
+
+    /**
+     * 已下线（管理员操作）
+     */
+    TAKEN_DOWN(4, "taken_down", "已下线");
 
     private final Integer code;
     private final String english;

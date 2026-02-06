@@ -4,7 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.newyear.config.SongConversionConfig;
 import org.example.newyear.dto.algorithm.audio.*;
+import org.example.newyear.entity.enums.AlgorithmEnum;
 import org.example.newyear.service.algorithm.SongConversionService;
+import org.example.newyear.service.task.TaskOrchestrator;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -13,9 +15,10 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class SongConversionFacade {
-    
+
     private final SongConversionService songConversionService;
     private final SongConversionConfig config;
+    private final TaskOrchestrator taskOrchestrator;
     
     /**
      * 提交歌曲转换任务（完整参数）
@@ -27,10 +30,13 @@ public class SongConversionFacade {
         // 填充配置中的 callbackUrl 和 source
         request.setCallbackUrl(config.getCallbackUrl());
         request.setSource(config.getSource());
-        
-        log.info("提交歌曲转换任务, taskId={}, modelCode={}", 
+
+        log.info("提交歌曲转换任务, taskId={}, modelCode={}",
             request.getBusinessTaskId(), request.getModelCode());
-        
+
+        // 初始化任务状态
+        taskOrchestrator.initTask(request.getBusinessTaskId(), AlgorithmEnum.SONG_CONVERSION);
+
         return songConversionService.submitAsync(request);
     }
     

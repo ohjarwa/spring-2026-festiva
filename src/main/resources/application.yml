@@ -133,20 +133,12 @@ vision:
   progress-callback-url: ${VISION_PROGRESS_CALLBACK_URL:http://your-service/vision/callback/progress}
   tags: activity2026
 
-# 算法任务配置
-algorithm:
-  # 统一回调URL（用于所有算法任务回调）
-  unified-callback-url: ${ALGORITHM_CALLBACK_URL:http://your-service/api/algorithm/callback}
-  # 轮询配置
-  poll:
-    interval-seconds: 5  # 轮询间隔（秒）
-    timeout-seconds: 1800 # 超时时间（秒，30分钟）
-
 audio:
   song-conversion:
     base-url: http://ip:port
     source: ${AUDIO_SOURCE:your-source}
     callback-url: http://your-service/audio/callback/song-conversion
+
 # 日志配置
 logging:
   level:

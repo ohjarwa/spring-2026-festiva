@@ -29,12 +29,10 @@ public class SongConversionCallbackConverter
                 ? TaskResultStatus.SUCCESS
                 : TaskResultStatus.FAILED;
 
-        Map<String, Object> data = new HashMap<>();
         String taskId = null;
 
         if (callback.getData() != null) {
             taskId = callback.getData().getTaskId();
-            data.put("resultUrl", callback.getData().getResult());
         }
 
         String rawCallback = serializeCallback(callback);
@@ -45,7 +43,7 @@ public class SongConversionCallbackConverter
                 .status(status)
                 .errorCode(callback.getCode())
                 .errorMessage(callback.getMsg())
-                .data(data)
+                .data(objectMapper.valueToTree(callback.getData()))
                 .callbackTime(LocalDateTime.now())
                 .rawCallback(rawCallback)
                 .build();

@@ -3,13 +3,15 @@ package org.example.newyear.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.newyear.dto.VideoCreateDTO;
+import org.example.newyear.dto.algorithm.audio.FeatureExtractionCallbackData;
+import org.example.newyear.dto.algorithm.audio.SongConversionCallbackData;
+import org.example.newyear.dto.algorithm.vision.Flux2ImageGenResultData;
+import org.example.newyear.dto.algorithm.vision.LipsyncResultData;
+import org.example.newyear.dto.algorithm.vision.WanAnimateResultData;
 import org.example.newyear.entity.Spring2026Template;
 import org.example.newyear.entity.algorithm.vision.ImageRatio;
 import org.example.newyear.entity.enums.AlgorithmEnum;
-import org.example.newyear.entity.task.TaskResult;
-import org.example.newyear.entity.task.TaskResultStatus;
 import org.example.newyear.util.KeyGeneratorUtils;
-import org.example.newyear.service.oss.OssService;
 import org.example.newyear.util.VideoProcessorUtil;
 import org.example.newyear.service.task.TaskOrchestrator;
 import org.springframework.stereotype.Service;
@@ -151,8 +153,7 @@ public class Template1to4Processor implements ITemplateProcessor {
 
     /**
      * 步骤1.1: 歌曲转换
-     * 使用 TaskOrchestrator 系统管理
-     * 注意：这里需要提供预置的 bgmUrl 和 modelCode
+     * 使用 TaskOrchestrator 系统管理（泛型方法直接获取强类型结果）
      */
     private String performSongConversion(String userAudioUrl) throws TimeoutException {
         log.info("开始歌曲转换: userAudioUrl={}", userAudioUrl);
@@ -161,42 +162,37 @@ public class Template1to4Processor implements ITemplateProcessor {
         String taskId = KeyGeneratorUtils.taskIdGen();
         log.info("生成 taskId: {}, algorithm=song_conversion", taskId);
 
-        // 2. 初始化任务（在 SongConversionFacade.submit 中完成）
-        // taskOrchestrator.initTask(taskId, AlgorithmEnum.SONG_CONVERSION);
-
-        // 3. 提交算法任务
+        // 2. 提交算法任务（SongConversionFacade 内部会调用 initTask）
         log.info("提交歌曲转换任务: taskId={}", taskId);
 
         // TODO: 需要提供预置的 bgmUrl 和 modelCode
-        // 暂时使用占位符
-        String bgmUrl = BGM_2_URL;  // 使用背景音乐URL
-        String modelCode = "default_model";  // TODO: 需要配置预置模型
+        String bgmUrl = BGM_2_URL;
+        String modelCode = "default_model";
 
         songConversionFacade.submit(
-                userAudioUrl,  // audioUrl - 人声下载地址
-                bgmUrl,        // bgmUrl - 背景音下载地址
-                null,          // voiceUrl - 提取特征的原音频（可选）
-                modelCode,     // modelCode - 模型编号
-                taskId         // taskId
+                userAudioUrl,
+                bgmUrl,
+                null,
+                modelCode,
+                taskId
         );
 
-        // 4. 等待结果
-        TaskResult result = taskOrchestrator.awaitTask(taskId, AlgorithmEnum.SONG_CONVERSION, DEFAULT_TIMEOUT);
+        // 3. 等待结果（泛型方法直接获取强类型）
+        SongConversionCallbackData result = taskOrchestrator.awaitTask(
+                taskId,
+                AlgorithmEnum.SONG_CONVERSION,
+                SongConversionCallbackData.class
+        );
 
-        // 5. 检查结果
-        if (!result.isSuccess()) {
-            throw new RuntimeException("歌曲转换失败: " + result.getErrorMessage());
-        }
-
-        // 6. 获取生成的音频URL
-        String resultUrl = result.getAudioUrl();
-        if (resultUrl == null || resultUrl.isEmpty()) {
+        // 4. 检查结果
+        if (result.getResult() == null || result.getResult().isEmpty()) {
             throw new RuntimeException("歌曲转换失败：未返回音频URL");
         }
 
+        String resultUrl = result.getResult();
         log.info("歌曲转换成功: resultUrl={}", resultUrl);
 
-        // 7. 清理任务
+        // 5. 清理任务
         taskOrchestrator.cleanupTask(taskId, AlgorithmEnum.SONG_CONVERSION);
 
         return resultUrl;
@@ -204,7 +200,7 @@ public class Template1to4Processor implements ITemplateProcessor {
 
     /**
      * 步骤1.2: 人声转换（特征提取）
-     * 使用 TaskOrchestrator 系统管理
+     * 使用 TaskOrchestrator 系统管理（泛型方法直接获取强类型结果）
      */
     private String performVoiceConversion(String userAudioUrl) throws TimeoutException {
         log.info("开始人声转换（特征提取）: userAudioUrl={}", userAudioUrl);
@@ -213,30 +209,26 @@ public class Template1to4Processor implements ITemplateProcessor {
         String taskId = KeyGeneratorUtils.taskIdGen();
         log.info("生成 taskId: {}, algorithm=voice_conversion", taskId);
 
-        // 2. 初始化任务（在 FeatureExtractionFacade.submit 中完成）
-        // taskOrchestrator.initTask(taskId, AlgorithmEnum.VOICE_CONVERSION);
-
-        // 3. 提交算法任务
+        // 2. 提交算法任务（FeatureExtractionFacade 内部会调用 initTask）
         log.info("提交人声转换任务: taskId={}", taskId);
         featureExtractionFacade.submit(userAudioUrl, taskId);
 
-        // 4. 等待结果
-        TaskResult result = taskOrchestrator.awaitTask(taskId, AlgorithmEnum.VOICE_CONVERSION, DEFAULT_TIMEOUT);
+        // 3. 等待结果（泛型方法直接获取强类型）
+        FeatureExtractionCallbackData result = taskOrchestrator.awaitTask(
+                taskId,
+                AlgorithmEnum.VOICE_CONVERSION,
+                FeatureExtractionCallbackData.class
+        );
 
-        // 5. 检查结果
-        if (!result.isSuccess()) {
-            throw new RuntimeException("人声转换失败: " + result.getErrorMessage());
-        }
-
-        // 6. 获取生成的特征ID
-        String featureId = result.getData("featureId", String.class);
-        if (featureId == null || featureId.isEmpty()) {
+        // 4. 检查结果
+        if (result.getFeatureId() == null || result.getFeatureId().isEmpty()) {
             throw new RuntimeException("人声转换失败：未返回特征ID");
         }
 
+        String featureId = result.getFeatureId();
         log.info("人声转换成功: featureId={}", featureId);
 
-        // 7. 清理任务
+        // 5. 清理任务
         taskOrchestrator.cleanupTask(taskId, AlgorithmEnum.VOICE_CONVERSION);
 
         return featureId;
@@ -244,7 +236,7 @@ public class Template1to4Processor implements ITemplateProcessor {
 
     /**
      * 步骤2: Flux2多图生图
-     * 使用 TaskOrchestrator 系统管理
+     * 使用 TaskOrchestrator 系统管理（泛型方法直接获取强类型结果）
      */
     private String performFlux2ImageGen(String userPhotoUrl) throws TimeoutException {
         log.info("开始Flux2多图生图: userPhotoUrl={}", userPhotoUrl);
@@ -265,26 +257,30 @@ public class Template1to4Processor implements ITemplateProcessor {
                 taskId
         );
 
-        // 4. 等待结果
-        TaskResult result = taskOrchestrator.awaitTask(taskId, AlgorithmEnum.FLUX2_IMAGE_GEN, DEFAULT_TIMEOUT);
+        // 4. 等待结果（泛型方法直接获取强类型）
+        Flux2ImageGenResultData result = taskOrchestrator.awaitTask(
+                taskId,
+                AlgorithmEnum.FLUX2_IMAGE_GEN,
+                Flux2ImageGenResultData.class
+        );
 
         // 5. 检查结果
-        if (!result.isSuccess()) {
-            throw new RuntimeException("Flux2生图失败: " + result.getErrorMessage());
-        }
-
-        // 6. 获取生成的图片URL
-        @SuppressWarnings("unchecked")
-        List<String> targetImageUrls = (List<String>) result.getData().get("targetImageUrls");
-
+        List<String> targetImageUrls = result.getTargetImageUrls();
         if (targetImageUrls == null || targetImageUrls.isEmpty()) {
-            throw new RuntimeException("Flux2生图失败：未返回图片URL");
+            // 尝试使用单图结果字段
+            String singleUrl = result.getTargetImageUrl();
+            if (singleUrl == null || singleUrl.isEmpty()) {
+                throw new RuntimeException("Flux2生图失败：未返回图片URL");
+            }
+            log.info("Flux2生图成功: aigcPersonUrl={}", singleUrl);
+            taskOrchestrator.cleanupTask(taskId, AlgorithmEnum.FLUX2_IMAGE_GEN);
+            return singleUrl;
         }
 
-        String aigcPersonUrl = targetImageUrls.get(0);  // aigc_person.jpg
+        String aigcPersonUrl = targetImageUrls.get(0);
         log.info("Flux2生图成功: aigcPersonUrl={}", aigcPersonUrl);
 
-        // 7. 清理任务
+        // 6. 清理任务
         taskOrchestrator.cleanupTask(taskId, AlgorithmEnum.FLUX2_IMAGE_GEN);
 
         return aigcPersonUrl;
@@ -292,7 +288,7 @@ public class Template1to4Processor implements ITemplateProcessor {
 
     /**
      * 步骤3/4: WanAnimate人物替换
-     * 使用 TaskOrchestrator 系统管理
+     * 使用 TaskOrchestrator 系统管理（泛型方法直接获取强类型结果）
      *
      * @param videoUrl    源视频URL
      * @param faceImageUrl 人物图片URL
@@ -312,23 +308,22 @@ public class Template1to4Processor implements ITemplateProcessor {
         log.info("提交 WanAnimate 人物替换任务: taskId={}", taskId);
         visionFacade.submitWanAnimate(faceImageUrl, videoUrl, taskId);
 
-        // 4. 等待结果
-        TaskResult result = taskOrchestrator.awaitTask(taskId, AlgorithmEnum.WAN_ANIMATE, DEFAULT_TIMEOUT);
+        // 4. 等待结果（泛型方法直接获取强类型）
+        WanAnimateResultData result = taskOrchestrator.awaitTask(
+                taskId,
+                AlgorithmEnum.WAN_ANIMATE,
+                WanAnimateResultData.class
+        );
 
         // 5. 检查结果
-        if (!result.isSuccess()) {
-            throw new RuntimeException("WanAnimate人物替换失败: " + result.getErrorMessage());
-        }
-
-        // 6. 获取生成的视频URL
-        String targetVideoUrl = result.getVideoUrl();
+        String targetVideoUrl = result.getTargetVideoUrl();
         if (targetVideoUrl == null || targetVideoUrl.isEmpty()) {
             throw new RuntimeException("WanAnimate人物替换失败：未返回视频URL");
         }
 
         log.info("WanAnimate人物替换成功: targetVideoUrl={}", targetVideoUrl);
 
-        // 7. 清理任务
+        // 6. 清理任务
         taskOrchestrator.cleanupTask(taskId, AlgorithmEnum.WAN_ANIMATE);
 
         return targetVideoUrl;
@@ -336,7 +331,7 @@ public class Template1to4Processor implements ITemplateProcessor {
 
     /**
      * 步骤5: Lipsync唇形同步
-     * 使用 TaskOrchestrator 系统管理
+     * 使用 TaskOrchestrator 系统管理（泛型方法直接获取强类型结果）
      */
     private String performLipsync(String videoUrl, String audioUrl) throws TimeoutException {
         log.info("开始Lipsync唇形同步: videoUrl={}, audioUrl={}", videoUrl, audioUrl);
@@ -352,15 +347,14 @@ public class Template1to4Processor implements ITemplateProcessor {
         log.info("提交 Lipsync 唇形同步任务: taskId={}", taskId);
         visionFacade.submitLipsync(videoUrl, audioUrl, taskId);
 
-        // 4. 等待结果
-        TaskResult result = taskOrchestrator.awaitTask(taskId, AlgorithmEnum.LIPS_SYNC, DEFAULT_TIMEOUT);
+        // 4. 等待结果（泛型方法直接获取强类型）
+        LipsyncResultData result = taskOrchestrator.awaitTask(
+                taskId,
+                AlgorithmEnum.LIPS_SYNC,
+                LipsyncResultData.class
+        );
 
         // 5. 检查结果
-        if (!result.isSuccess()) {
-            throw new RuntimeException("Lipsync唇形同步失败: " + result.getErrorMessage());
-        }
-
-        // 6. 获取生成的视频URL
         String videoResultUrl = result.getVideoUrl();
         if (videoResultUrl == null || videoResultUrl.isEmpty()) {
             throw new RuntimeException("Lipsync唇形同步失败：未返回视频URL");
@@ -368,7 +362,7 @@ public class Template1to4Processor implements ITemplateProcessor {
 
         log.info("Lipsync唇形同步成功: videoResultUrl={}", videoResultUrl);
 
-        // 7. 清理任务
+        // 6. 清理任务
         taskOrchestrator.cleanupTask(taskId, AlgorithmEnum.LIPS_SYNC);
 
         return videoResultUrl;

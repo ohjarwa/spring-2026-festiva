@@ -195,40 +195,29 @@ public class Template1to4Processor implements ITemplateProcessor {
     }
 
     /**
-     * 步骤2: Flux2多图生图并等待回调
+     * 步骤2: Flux2多图生图并轮询等待结果
      * 使用VisionFacade调用算法服务
      */
     private String performFlux2ImageGenAndWait(String userPhotoUrl, String recordId) {
         try {
             log.info("开始Flux2多图生图: userPhotoUrl={}, recordId={}", userPhotoUrl, recordId);
 
-            // 生成taskId（作为callbackId的一部分）
-            String taskId = visionFacade.generateTaskId();
             String stepName = "flux2_image_gen";
-            String callbackId = recordId + ":" + stepName + ":" + taskId;
 
-            // 使用VisionFacade提交Flux2图生图任务
-            // 传入用户照片作为参考图（图生图模式）
-            org.example.newyear.dto.algorithm.vision.AsyncSubmitResponse response = visionFacade.submitImageToImageMulti(
-                    IMAGE_GEN_PROMPT,
-                    java.util.Arrays.asList(userPhotoUrl),
-                    ImageRatio.RATIO_1_1,  // 1:1比例
-                    callbackId  // 使用callbackId作为taskId
-            );
-
-            if (!response.isSuccess()) {
-                throw new RuntimeException("Flux2任务提交失败: " + response.getMessage());
-            }
-
-            log.info("Flux2任务已提交: taskId={}, queuePosition={}, estimatedDurationMs={}",
-                    taskId, response.getData().getQueuePosition(), response.getData().getEstimatedDurationMs());
-
-            // 等待回调
-            Map<String, Object> result = videoProcessingService.callAndWaitForCallback(
+            // 使用pollForResult轮询等待结果
+            Map<String, Object> result = videoProcessingService.pollForResult(
                     recordId,
                     stepName,
-                    () -> response,  // 已经提交，直接返回response
-                    180  // 等待180秒（3分钟）
+                    (taskId) -> {
+                        // 提交Flux2图生图任务，传入用户照片作为参考图（图生图模式）
+                        // taskId就是callbackId
+                        return visionFacade.submitImageToImageMulti(
+                                IMAGE_GEN_PROMPT,
+                                java.util.Arrays.asList(userPhotoUrl),
+                                ImageRatio.RATIO_1_1,  // 1:1比例
+                                taskId  // 使用taskId作为callbackId
+                        );
+                    }
             );
 
             // 获取生成的图片URL
@@ -251,7 +240,7 @@ public class Template1to4Processor implements ITemplateProcessor {
     }
 
     /**
-     * 步骤3/4: WanAnimate人物替换并等待回调
+     * 步骤3/4: WanAnimate人物替换并轮询等待结果
      * 使用VisionFacade调用算法服务
      *
      * @param videoUrl    源视频URL
@@ -265,30 +254,18 @@ public class Template1to4Processor implements ITemplateProcessor {
             log.info("开始WanAnimate人物替换: videoUrl={}, faceImageUrl={}, stepName={}",
                     videoUrl, faceImageUrl, stepName);
 
-            // 生成taskId
-            String taskId = visionFacade.generateTaskId();
-            String callbackId = recordId + ":" + stepName + ":" + taskId;
-
-            // 使用VisionFacade提交WanAnimate任务
-            org.example.newyear.dto.algorithm.vision.AsyncSubmitResponse response = visionFacade.submitWanAnimate(
-                    faceImageUrl,   // 人物图片
-                    videoUrl,       // 驱动视频
-                    callbackId      // 使用callbackId作为taskId
-            );
-
-            if (!response.isSuccess()) {
-                throw new RuntimeException("WanAnimate任务提交失败: " + response.getMessage());
-            }
-
-            log.info("WanAnimate任务已提交: taskId={}, stepName={}, queuePosition={}",
-                    taskId, stepName, response.getData().getQueuePosition());
-
-            // 等待回调
-            Map<String, Object> result = videoProcessingService.callAndWaitForCallback(
+            // 使用pollForResult轮询等待结果
+            Map<String, Object> result = videoProcessingService.pollForResult(
                     recordId,
                     stepName,
-                    () -> response,
-                    180  // 等待180秒（3分钟）
+                    (taskId) -> {
+                        // 提交WanAnimate任务，taskId就是callbackId
+                        return visionFacade.submitWanAnimate(
+                                faceImageUrl,   // 人物图片
+                                videoUrl,       // 驱动视频
+                                taskId          // 使用taskId作为callbackId
+                        );
+                    }
             );
 
             String targetVideoUrl = (String) result.get("targetVideoUrl");
@@ -303,7 +280,7 @@ public class Template1to4Processor implements ITemplateProcessor {
     }
 
     /**
-     * 步骤5: Lipsync唇形同步并等待回调
+     * 步骤5: Lipsync唇形同步并轮询等待结果
      * 使用VisionFacade调用算法服务
      */
     private String performLipsyncAndWait(String videoUrl, String audioUrl, String recordId) {
@@ -311,27 +288,16 @@ public class Template1to4Processor implements ITemplateProcessor {
             log.info("开始Lipsync唇形同步: videoUrl={}, audioUrl={}, recordId={}",
                     videoUrl, audioUrl, recordId);
 
-            // 生成taskId
-            String taskId = visionFacade.generateTaskId();
             String stepName = "lipsync";
-            String callbackId = recordId + ":" + stepName + ":" + taskId;
 
-            // 使用VisionFacade提交Lipsync任务
-            org.example.newyear.dto.algorithm.vision.AsyncSubmitResponse response = visionFacade.submitLipsync(videoUrl, audioUrl, callbackId);
-
-            if (!response.isSuccess()) {
-                throw new RuntimeException("Lipsync任务提交失败: " + response.getMessage());
-            }
-
-            log.info("Lipsync任务已提交: taskId={}, queuePosition={}",
-                    taskId, response.getData().getQueuePosition());
-
-            // 等待回调
-            Map<String, Object> result = videoProcessingService.callAndWaitForCallback(
+            // 使用pollForResult轮询等待结果
+            Map<String, Object> result = videoProcessingService.pollForResult(
                     recordId,
                     stepName,
-                    () -> response,
-                    180  // 等待180秒（3分钟）
+                    (taskId) -> {
+                        // 提交Lipsync任务，taskId就是callbackId
+                        return visionFacade.submitLipsync(videoUrl, audioUrl, taskId);
+                    }
             );
 
             String videoResultUrl = (String) result.get("videoUrl");

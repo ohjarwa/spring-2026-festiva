@@ -13,8 +13,9 @@ public class Flux2ImageGenResultData extends AlgorithmResultBase {
 
     /**
      * 生成的结果图片URL列表
+     * 对应YAPI文档中的 fileUrls 字段
      */
-    private List<String> targetImageUrls;
+    private List<String> fileUrls;
 
     /**
      * 单张结果图URL（兼容单图返回场景）

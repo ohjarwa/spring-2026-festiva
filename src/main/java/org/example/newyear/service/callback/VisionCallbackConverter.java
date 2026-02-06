@@ -50,6 +50,7 @@ public class VisionCallbackConverter
             extractField(dataNode, "targetVideoUrl", data);
             extractField(dataNode, "targetImageUrl", data);
             extractField(dataNode, "alphaVideoUrl", data);
+            extractField(dataNode, "fileUrls", data);
             extractField(dataNode, "resultInfo", data);
         }
 

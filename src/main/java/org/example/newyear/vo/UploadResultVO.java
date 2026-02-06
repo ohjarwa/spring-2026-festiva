@@ -30,4 +30,9 @@ public class UploadResultVO {
      * 时长（音频）/ 宽度（图片）
      */
     private Object metadata;
+
+    /**
+     * 素材ID（用于素材管理）
+     */
+    private String materialId;
 }

@@ -14,6 +14,8 @@ import org.example.newyear.vo.VideoCreateVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -32,6 +34,7 @@ public class VideoService {
     private final TemplateService templateService;
     private final VideoProcessingService videoProcessingService;
     private final Spring2026CreationRecordMapper recordMapper;
+    private final UserMaterialService userMaterialService;
 
     /**
      * 创建视频任务（异步模式：仅落库，由定时任务拉起执行）
@@ -54,8 +57,12 @@ public class VideoService {
         //     throw new BusinessException(BusinessCode.ERROR_AUDIT_PENDING, "素材审核未通过，请等待审核完成");
         // }
 
+        // 2.5. 解析素材：如果传了materialId，转换为URL（保持向后兼容）
+        MaterialsDTO materials = dto.getMaterials();
+        MaterialsDTO resolvedMaterials = resolveMaterials(materials);
+
         // 3. 创建创作记录（status=0 待执行，等待定时任务拉起）
-        String materialsJson = JsonUtil.toJson(dto.getMaterials());
+        String materialsJson = JsonUtil.toJson(resolvedMaterials);
         String recordId = creationRecordService.createRecord(userId, dto.getTemplateId(), materialsJson);
 
         log.info("视频任务已创建，等待定时任务调度: recordId={}, userId={}, templateId={}",
@@ -69,5 +76,43 @@ public class VideoService {
         vo.setTips("视频任务已提交，预计" + (estimatedTime / 60) + "分钟后完成");
 
         return vo;
+    }
+
+    /**
+     * 解析素材：将materialId转换为URL（保持向后兼容）
+     * 优先使用materialId，如果没有则使用直接传入的URL
+     */
+    private MaterialsDTO resolveMaterials(MaterialsDTO materials) {
+        MaterialsDTO resolved = new MaterialsDTO();
+
+        // 解析图片素材
+        if (materials.getPhotoMaterialIds() != null && !materials.getPhotoMaterialIds().isEmpty()) {
+            // 使用materialId获取URL
+            List<String> photoUrls = new ArrayList<>();
+            for (String materialId : materials.getPhotoMaterialIds()) {
+                String url = userMaterialService.getMaterialUrl(materialId);
+                photoUrls.add(url);
+            }
+            resolved.setPhotos(photoUrls);
+        } else if (materials.getPhotos() != null && !materials.getPhotos().isEmpty()) {
+            // 向后兼容：直接使用URL
+            resolved.setPhotos(materials.getPhotos());
+        }
+
+        // 解析音频素材
+        if (materials.getAudioMaterialIds() != null && !materials.getAudioMaterialIds().isEmpty()) {
+            // 使用materialId获取URL
+            List<String> audioUrls = new ArrayList<>();
+            for (String materialId : materials.getAudioMaterialIds()) {
+                String url = userMaterialService.getMaterialUrl(materialId);
+                audioUrls.add(url);
+            }
+            resolved.setAudios(audioUrls);
+        } else if (materials.getAudios() != null && !materials.getAudios().isEmpty()) {
+            // 向后兼容：直接使用URL
+            resolved.setAudios(materials.getAudios());
+        }
+
+        return resolved;
     }
 }

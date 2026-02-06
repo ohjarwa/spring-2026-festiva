@@ -5,7 +5,7 @@ import lombok.Getter;
 
 @Getter
 @AllArgsConstructor
-public enum TaskStatus {
+public enum VisionTaskStatus {
     
     QUEUED(1, "QUEUED", "任务提交"),
     STARTED(2, "STARTED", "任务开始执行"),
@@ -17,11 +17,11 @@ public enum TaskStatus {
     private final String name;
     private final String description;
     
-    public static TaskStatus of(Integer code) {
+    public static VisionTaskStatus of(Integer code) {
         if (code == null) {
             return null;
         }
-        for (TaskStatus status : values()) {
+        for (VisionTaskStatus status : values()) {
             if (status.code == code) {
                 return status;
             }

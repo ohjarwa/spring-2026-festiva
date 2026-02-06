@@ -135,7 +135,7 @@ vision:
 audio:
   song-conversion:
     base-url: http://ip:port
-    source: ${AUDIO_SOURCE:your-source}
+    source: ${AUDIO_SOURCE:activity2026}
     callback-url: http://your-service/audio/callback/song-conversion
 # 日志配置
 logging:

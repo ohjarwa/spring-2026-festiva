@@ -9,6 +9,7 @@ import org.example.newyear.entity.enums.AlgorithmEnum;
 import org.example.newyear.entity.task.TaskResult;
 import org.example.newyear.entity.task.TaskResultStatus;
 import org.example.newyear.util.KeyGeneratorUtils;
+import org.example.newyear.service.oss.OssService;
 import org.example.newyear.util.VideoProcessorUtil;
 import org.example.newyear.service.task.TaskOrchestrator;
 import org.springframework.stereotype.Service;
@@ -45,28 +46,24 @@ public class Template1to4Processor implements ITemplateProcessor {
     private final VisionFacade visionFacade;
     private final VideoProcessorUtil videoProcessorUtil;
     private final TaskOrchestrator taskOrchestrator;
+    private final OssService ossService;
 
     // ======================== 固定素材URL配置（后续从OSS获取）========================
 
     /**
      * 视频片段0 - 用于人物替换
      */
-    private static final String SRC_VIDEO_0_URL = "https://your-oss-bucket.com/templates/src_video_0.mp4";
-
-    /**
-     * 视频片段1 - 无须处理
-     */
-    private static final String SRC_VIDEO_1_URL = "https://your-oss-bucket.com/templates/src_video_1.mp4";
+    private static final String SRC_VIDEO_0_PATH = "spring2026/source/template_1_video_1_silence.mp4";
 
     /**
      * 视频片段2 - 先人物替换，再Lipsync
      */
-    private static final String SRC_VIDEO_2_URL = "https://your-oss-bucket.com/templates/src_video_2.mp4";
+    private static final String SRC_VIDEO_2_PATH = "spring2026/source/template_1_video_2_silence.mp4";
 
     /**
      * 背景音乐 - 片段2对应的背景音乐
      */
-    private static final String BGM_2_URL = "https://your-oss-bucket.com/templates/bgm_2.wav";
+    private static final String BGM_2_URL = "spring2026/source/template_1_audio_2.MP3";
 
     /**
      * 固定文案 - 用于语音合成
@@ -87,7 +84,7 @@ public class Template1to4Processor implements ITemplateProcessor {
     @Override
     public String process(String recordId, Spring2026Template template, VideoCreateDTO dto) {
         log.info("开始处理模板1-4流程: recordId={}, templateId={}", recordId, template.getTemplateId());
-
+        //任务数据结构化落库
         try {
             // 获取用户上传素材
             String userPhotoUrl = dto.getMaterials().getPhotos().get(0);  // src_person.jpg
@@ -114,13 +111,13 @@ public class Template1to4Processor implements ITemplateProcessor {
             // ======================== 步骤3: WanAnimate人物替换（视频0）========================
 
             log.info("步骤3: WanAnimate人物替换（视频0）");
-            String aigcVideo0Url = performWanAnimate(SRC_VIDEO_0_URL, aigcPersonUrl);
+            String aigcVideo0Url = performWanAnimate(ossService.getAccessUrl(SRC_VIDEO_0_PATH), aigcPersonUrl);
             log.info("视频0人物替换完成: aigcVideo0Url={}", aigcVideo0Url);
 
             // ======================== 步骤4: WanAnimate人物替换（视频2）========================
 
             log.info("步骤4: WanAnimate人物替换（视频2）");
-            String aigcVideo2Step0Url = performWanAnimate(SRC_VIDEO_2_URL, aigcPersonUrl);
+            String aigcVideo2Step0Url = performWanAnimate(ossService.getAccessUrl(SRC_VIDEO_2_PATH), aigcPersonUrl);
             log.info("视频2人物替换完成: aigcVideo2Step0Url={}", aigcVideo2Step0Url);
 
             // ======================== 步骤5: Lipsync唇形同步（视频2）========================
@@ -132,7 +129,7 @@ public class Template1to4Processor implements ITemplateProcessor {
             // ======================== 步骤6: FFmpeg混入背景音乐 ========================
 
             log.info("步骤6: FFmpeg混入背景音乐（BGM）");
-            String aigcVideo2FinalUrl = performAudioMixing(aigcVideo2Step1Url, BGM_2_URL, recordId);
+            String aigcVideo2FinalUrl = performAudioMixing(aigcVideo2Step1Url, ossService.getAccessUrl(BGM_2_URL), recordId);
             log.info("背景音乐混合完成: aigcVideo2FinalUrl={}", aigcVideo2FinalUrl);
 
             // ======================== 步骤7: 视频拼接 ========================
@@ -413,6 +410,35 @@ public class Template1to4Processor implements ITemplateProcessor {
         } catch (Exception e) {
             log.error("视频拼接失败: recordId={}", recordId, e);
             throw new RuntimeException("视频拼接失败", e);
+        }
+    }
+
+    // ======================== 辅助方法 ========================
+
+    /**
+     * 构建回调URL
+     * 格式：http://your-domain.com/api/callback/xxx?callbackId=recordId:uuid
+     *
+     * 注意：多图生图使用同步接口，不需要回调URL
+     */
+    private String buildCallbackUrl(String recordId, String stepName) {
+        String callbackId = recordId + ":" + java.util.UUID.randomUUID().toString();
+
+        // TODO: 从配置文件读取服务器地址
+        String serverDomain = "http://your-domain.com";
+
+        switch (stepName) {
+            case "voice_clone":
+                return serverDomain + "/api/callback/voice-clone";
+            case "voice_tts":
+                return serverDomain + "/api/callback/voice-tts";
+            case "face_swap_0":
+            case "face_swap_2":
+                return serverDomain + "/api/callback/video/face-swap?callbackId=" + callbackId;
+            case "lip_sync":
+                return serverDomain + "/api/callback/video/lip-sync?callbackId=" + callbackId;
+            default:
+                throw new IllegalArgumentException("未知的步骤名称: " + stepName);
         }
     }
 }

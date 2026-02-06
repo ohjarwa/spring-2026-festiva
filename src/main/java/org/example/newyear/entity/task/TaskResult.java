@@ -1,8 +1,10 @@
 package org.example.newyear.entity.task;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Builder;
 import lombok.Data;
 import org.example.newyear.entity.enums.AlgorithmEnum;
+import org.example.newyear.util.JacksonUtils;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -42,8 +44,7 @@ public class TaskResult {
     /**
      * 结果数据（各算法特定字段）
      */
-    @Builder.Default
-    private Map<String, Object> data = new HashMap<>();
+    private JsonNode data;
 
     /**
      * 业务透传数据
@@ -75,6 +76,10 @@ public class TaskResult {
                 || status == TaskResultStatus.FAILED
                 || status == TaskResultStatus.CANCELLED
                 || status == TaskResultStatus.TIMEOUT;
+    }
+
+    public <T> T getResult(Class<T> type) {
+        return JacksonUtils.convert(data, type);
     }
 
     /**

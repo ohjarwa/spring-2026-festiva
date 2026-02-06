@@ -32,7 +32,6 @@ public class VisionCallbackConverter
         AlgorithmEnum algorithm = getAlgorithm(callback);
         TaskResultStatus status = convertStatus(callback.getTaskStatus());
 
-        Map<String, Object> data = new HashMap<>();
         Integer algorithmCode = null;
         String algorithmMessage = null;
 
@@ -44,14 +43,6 @@ public class VisionCallbackConverter
             if (dataNode.has("message")) {
                 algorithmMessage = dataNode.get("message").asText();
             }
-
-            // 提取各类URL
-            extractField(dataNode, "videoUrl", data);
-            extractField(dataNode, "targetVideoUrl", data);
-            extractField(dataNode, "targetImageUrl", data);
-            extractField(dataNode, "alphaVideoUrl", data);
-            extractField(dataNode, "fileUrls", data);
-            extractField(dataNode, "resultInfo", data);
         }
 
         // 框架层成功但算法层失败
@@ -68,7 +59,7 @@ public class VisionCallbackConverter
                 .status(status)
                 .errorCode(algorithmCode != null ? algorithmCode : callback.getCode())
                 .errorMessage(algorithmMessage != null ? algorithmMessage : callback.getMessage())
-                .data(data)
+                .data(dataNode)
                 .businessMessage(callback.getBusinessMessage())
                 .callbackTime(LocalDateTime.now())
                 .rawCallback(rawCallback)

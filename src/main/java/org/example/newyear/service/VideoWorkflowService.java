@@ -2,6 +2,12 @@ package org.example.newyear.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.newyear.dto.algorithm.audio.FeatureExtractionCallbackData;
+import org.example.newyear.dto.algorithm.audio.SongConversionCallbackData;
+import org.example.newyear.dto.algorithm.vision.Flux2ImageGenResultData;
+import org.example.newyear.dto.algorithm.vision.LipsyncResultData;
+import org.example.newyear.dto.algorithm.vision.WanAnimateResultData;
+import org.example.newyear.dto.algorithm.vision.WanVideoFLFResultData;
 import org.example.newyear.entity.enums.AlgorithmEnum;
 import org.example.newyear.entity.task.TaskResult;
 import org.example.newyear.service.task.TaskOrchestrator;
@@ -64,7 +70,17 @@ public class VideoWorkflowService {
         String songTaskId = songConversionFacade.generateTaskId();
         taskOrchestrator.initTask(songTaskId, AlgorithmEnum.SONG_CONVERSION);
         songConversionFacade.submit(vocalUrl, bgmUrl, vocalUrl, modelCode, songTaskId);
-        
+
+
+        // 获取结果示例
+        SongConversionCallbackData result = taskOrchestrator.awaitTask(songTaskId, AlgorithmEnum.SONG_CONVERSION, SongConversionCallbackData.class);
+        WanAnimateResultData wanAnimateResultData = taskOrchestrator.awaitTask(songTaskId, AlgorithmEnum.WAN_ANIMATE, WanAnimateResultData.class);
+        WanVideoFLFResultData wanVideoFLFResultData = taskOrchestrator.awaitTask(songTaskId, AlgorithmEnum.WAN_VIDEO_FLF, WanVideoFLFResultData.class);
+        Flux2ImageGenResultData flux2ImageGenResultData = taskOrchestrator.awaitTask(songTaskId, AlgorithmEnum.FLUX2_IMAGE_GEN, Flux2ImageGenResultData.class);
+        LipsyncResultData lipsyncResultData = taskOrchestrator.awaitTask(songTaskId, AlgorithmEnum.LIPS_SYNC, LipsyncResultData.class);
+        FeatureExtractionCallbackData featureExtractionCallbackData = taskOrchestrator.awaitTask(songTaskId, AlgorithmEnum.VOICE_CONVERSION, FeatureExtractionCallbackData.class);
+
+
         TaskResult songResult = taskOrchestrator.awaitTask(
             songTaskId, AlgorithmEnum.SONG_CONVERSION, Duration.ofMinutes(10));
         

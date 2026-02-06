@@ -6,9 +6,6 @@ import java.util.UUID;
 
 @UtilityClass
 public class KeyGeneratorUtils {
-    public static String redisKeyGen(String taskId, String aiName) {
-        return taskId + ":" + aiName;
-    }
 
     public static String taskIdGen() {
         return "activity2026"+":"+ UUID.randomUUID();

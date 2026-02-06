@@ -42,7 +42,13 @@ public class TaskOrchestrator {
             throws TimeoutException {
         return taskResultPoller.waitForCompletion(taskId, algorithm, timeout);
     }
-    
+
+    public <T> T awaitTask(String taskId, AlgorithmEnum algorithm, Class<T> type)
+            throws TimeoutException {
+        TaskResult result = awaitTask(taskId, algorithm);
+        return result.getResult(type);
+    }
+
     /**
      * 等待单个任务完成（默认5分钟超时）
      */

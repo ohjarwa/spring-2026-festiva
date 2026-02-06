@@ -73,7 +73,7 @@ aliyun:
         access-key-secret: ${OSS_DEFAULT_ACCESS_KEY_SECRET}
         bucket: ths-newyear-2026
         private-access: true
-        signed-url-expire: 600
+        signed-url-expire: 2592000
       # CV专用账号
       cv:
         endpoint: oss-cn-hangzhou.aliyuncs.com
@@ -81,7 +81,7 @@ aliyun:
         access-key-secret: ${OSS_CV_ACCESS_KEY_SECRET}
         bucket: cv-springfestval-2026
         private-access: true
-        signed-url-expire: 600
+        signed-url-expire: 2592000
 
 # AI服务配置
 ai:

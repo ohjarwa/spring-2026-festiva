@@ -371,4 +371,49 @@ public class VideoProcessingService {
                         .build()
         );
     }
+
+    /**
+     * 更新任务执行详情
+     */
+    private void updateTaskExecution(String recordId, String stepName, String status, String resultUrl) {
+        Spring2026CreationRecord record = recordMapper.selectById(recordId);
+        if (record == null) {
+            return;
+        }
+
+        Map<String, Object> execution;
+        try {
+            if (record.getTaskExecution() != null) {
+                execution = JsonUtil.fromJson(record.getTaskExecution(), new TypeReference<Map<String, Object>>() {});
+            } else {
+                execution = new HashMap<>();
+                Map<String, Object> stepsMap = new HashMap<>();
+                execution.put("steps", stepsMap);
+            }
+        } catch (Exception e) {
+            execution = new HashMap<>();
+            Map<String, Object> stepsMap = new HashMap<>();
+            execution.put("steps", stepsMap);
+        }
+
+        Map<String, Object> steps = (Map<String, Object>) execution.get("steps");
+        Map<String, Object> stepInfo = new HashMap<>();
+        stepInfo.put("status", status);
+        stepInfo.put("result_url", resultUrl);
+        stepInfo.put("end_time", System.currentTimeMillis());
+        steps.put(stepName, stepInfo);
+
+        record.setTaskExecution(JsonUtil.toJson(execution));
+        recordMapper.updateById(record);
+    }
+
+    public void notifyVideoProcessCallback(String faceSwap, VideoProcessCallbackDTO request) {
+
+    }
+
+    public void notifyLipSyncCallback(VideoAlgorithmCallbackResponse response, LipSyncCallbackData data, String callbackId) {
+    }
+
+    public void notifyMultiImageGenerateCallback(VideoAlgorithmCallbackResponse response, MultiImageGenerateCallbackData data, String callbackId) {
+    }
 }

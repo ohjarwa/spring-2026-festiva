@@ -34,7 +34,7 @@ public class VideoService {
     private final Spring2026CreationRecordMapper recordMapper;
 
     /**
-     * 创建视频任务
+     * 创建视频任务（异步模式：仅落库，由定时任务拉起执行）
      */
     @Transactional
     public VideoCreateVO createVideo(String userId, VideoCreateDTO dto) {
@@ -54,79 +54,19 @@ public class VideoService {
         //     throw new BusinessException(BusinessCode.ERROR_AUDIT_PENDING, "素材审核未通过，请等待审核完成");
         // }
 
-        // 3. 创建创作记录
+        // 3. 创建创作记录（status=0 待执行，等待定时任务拉起）
         String materialsJson = JsonUtil.toJson(dto.getMaterials());
         String recordId = creationRecordService.createRecord(userId, dto.getTemplateId(), materialsJson);
 
-        // 4. 异步处理视频生成
-        try {
-            videoProcessingService.processVideoCreation(recordId, userId, dto);
-        } catch (Exception e) {
-            log.error("启动视频处理失败: recordId={}", recordId, e);
-        }
+        log.info("视频任务已创建，等待定时任务调度: recordId={}, userId={}, templateId={}",
+            recordId, userId, dto.getTemplateId());
 
-        // 5. 返回结果
+        // 4. 返回结果（不立即执行，由定时任务拉起）
         VideoCreateVO vo = new VideoCreateVO();
         vo.setRecordId(recordId);
         vo.setStatus("queued");
         vo.setEstimatedTime(estimatedTime);
-        vo.setTips("视频生成需要约" + (estimatedTime / 60) + "分钟，完成后我们会通知您");
-
-        return vo;
-    }
-
-    /**
-     * 重新生成视频
-     */
-    @Transactional
-    public VideoCreateVO regenerateVideo(String userId, VideoRegenerateDTO dto) {
-        // 1. 查询原记录
-        Spring2026CreationRecord record = recordMapper.selectById(dto.getRecordId());
-        if (record == null || !record.getUserId().equals(userId)) {
-            throw new BusinessException(BusinessCode.ERROR_RECORD_NOT_FOUND);
-        }
-
-        // 2. 检查重试次数
-        if (record.getRetryCount() >= record.getMaxRetry()) {
-            throw new BusinessException(BusinessCode.ERROR_RETRY_LIMIT_EXCEEDED);
-        }
-
-        // 3. 检查配额
-        boolean deducted = userService.checkAndDeductQuota(userId);
-        if (!deducted) {
-            throw new BusinessException(BusinessCode.ERROR_QUOTA_NOT_ENOUGH);
-        }
-
-        // 4. 更新重试次数和状态
-        record.setRetryCount(record.getRetryCount() + 1);
-        record.setStatus(0); // 排队
-        record.setProgress(0);
-        recordMapper.updateById(record);
-
-        // 5. 重新执行视频处理
-        try {
-            // 从userMaterials解析MaterialsDTO
-            MaterialsDTO materials = JsonUtil.fromJson(record.getUserMaterials(), MaterialsDTO.class);
-
-            // 构建VideoCreateDTO
-            VideoCreateDTO createDto = new VideoCreateDTO();
-            createDto.setTemplateId(record.getTemplateId());
-            createDto.setMaterials(materials);
-
-            videoProcessingService.processVideoCreation(record.getRecordId(), userId, createDto);
-        } catch (Exception e) {
-            log.error("重新生成视频失败: recordId={}", record.getRecordId(), e);
-        }
-
-        // 6. 返回结果
-        Map<String, Object> taskConfig = templateService.getTaskConfig(record.getTemplateId());
-        Integer estimatedTime = (Integer) taskConfig.get("estimated_time");
-
-        VideoCreateVO vo = new VideoCreateVO();
-        vo.setRecordId(record.getRecordId());
-        vo.setStatus("queued");
-        vo.setEstimatedTime(estimatedTime);
-        vo.setTips("视频生成需要约" + (estimatedTime / 60) + "分钟，完成后我们会通知您");
+        vo.setTips("视频任务已提交，预计" + (estimatedTime / 60) + "分钟后完成");
 
         return vo;
     }

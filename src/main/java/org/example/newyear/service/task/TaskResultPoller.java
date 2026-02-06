@@ -22,7 +22,7 @@ public class TaskResultPoller {
     private final TaskResultStore taskResultStore;
 
     private static final long DEFAULT_POLL_INTERVAL_MS = 500;
-    private static final long DEFAULT_TIMEOUT_SECONDS = 300;
+    private static final long DEFAULT_TIMEOUT_SECONDS = 1800;
 
     /**
      * 等待任务完成（阻塞方式）

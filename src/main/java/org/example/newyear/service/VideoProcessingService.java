@@ -7,18 +7,23 @@ import org.example.newyear.dto.callback.*;
 import org.example.newyear.dto.VideoCreateDTO;
 import org.example.newyear.entity.Spring2026CreationRecord;
 import org.example.newyear.entity.Spring2026Template;
+import org.example.newyear.entity.enums.AlgorithmEnum;
+import org.example.newyear.entity.task.TaskResult;
 import org.example.newyear.exception.BusinessException;
 import org.example.newyear.mapper.Spring2026CreationRecordMapper;
+import org.example.newyear.service.task.TaskOrchestrator;
 import org.example.newyear.util.JsonUtil;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.example.newyear.util.KeyGeneratorUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 视频处理服务（核心流程编排 + 回调处理）
@@ -35,8 +40,9 @@ public class VideoProcessingService {
     private final TemplateService templateService;
     private final ApplicationContext applicationContext;
     private final CallbackResultManager callbackResultManager;
+    private final TaskOrchestrator taskOrchestrator;
 
-    // 存储等待回调的CountDownLatch
+    // 存储等待回调的CountDownLatch（用于旧的等待方法）
     private final Map<String, CountDownLatch> callbackLatches = new ConcurrentHashMap<>();
     // 存储回调结果（临时，用于CountDownLatch等待获取）
     private final Map<String, Object> callbackResults = new ConcurrentHashMap<>();
@@ -95,114 +101,50 @@ public class VideoProcessingService {
         }
     }
 
-    // ======================== 回调处理方法 ========================
+    // ======================== 使用 TaskOrchestrator 的辅助方法 ========================
 
     /**
-     * 人脸替换回调处理
+     * 调用 Vision 算法服务并等待结果（使用 TaskOrchestrator）
+     *
+     * @param algorithm 算法类型
+     * @param taskFunction 任务提交逻辑（接收 taskId，返回 AsyncSubmitResponse）
+     * @param timeoutMinutes 超时时间（分钟）
+     * @return TaskResult
      */
-    public void notifyFaceSwapCallback(VideoAlgorithmCallbackResponse response, FaceSwapCallbackData data, String callbackId) {
-        // 从callbackId中提取recordId
-        // 格式：callbackId = "recordId:uuid" 或 "recordId:stepName"
-        String[] parts = callbackId.split(":");
-        if (parts.length < 1) {
-            log.warn("callbackId格式错误: {}", callbackId);
-            return;
+    public TaskResult callVisionAlgorithm(
+            AlgorithmEnum algorithm,
+            java.util.function.Function<String, org.example.newyear.dto.algorithm.vision.AsyncSubmitResponse> taskFunction,
+            int timeoutMinutes) throws TimeoutException {
+
+        // 1. 生成 taskId
+        String taskId = KeyGeneratorUtils.taskIdGen();
+        log.info("生成 taskId: {}, algorithm={}", taskId, algorithm.getName());
+
+        // 2. 初始化任务
+        taskOrchestrator.initTask(taskId, algorithm);
+
+        // 3. 提交算法任务
+        log.info("提交 Vision 算法任务: taskId={}, algorithm={}", taskId, algorithm.getName());
+        org.example.newyear.dto.algorithm.vision.AsyncSubmitResponse response = taskFunction.apply(taskId);
+
+        if (!response.isSuccess()) {
+            throw new RuntimeException("Vision 算法任务提交失败: " + response.getMessage());
         }
 
-        String recordId = parts[0];
-        String stepName = "face_swap";
+        log.info("Vision 算法任务已提交: taskId={}, queuePosition={}",
+                taskId, response.getData().getQueuePosition());
 
-        log.info("处理人脸替换回调: recordId={}, targetVideoUrl={}",
-                recordId, data.getTargetVideoUrl());
+        // 4. 等待结果
+        TaskResult result = taskOrchestrator.awaitTask(taskId, algorithm, Duration.ofMinutes(timeoutMinutes));
 
-        // 保存回调产物
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", response.getCode() == 0);
-        result.put("targetVideoUrl", data.getTargetVideoUrl());
-        result.put("timestamp", System.currentTimeMillis());
+        // 5. 清理任务
+        taskOrchestrator.cleanupTask(taskId, algorithm);
 
-        // 存储到Redis（持久化）
-        callbackResultManager.saveResult(recordId, stepName, result);
-
-        // 存储到内存（用于CountDownLatch等待获取）
-        callbackResults.put(recordId + ":" + stepName, result);
-
-        log.info("人脸替换产物已保存: recordId={}, stepName={}, url={}",
-                recordId, stepName, data.getTargetVideoUrl());
-
-        // 唤醒等待
-        wakeupLatch(recordId, stepName);
+        log.info("Vision 算法任务完成: taskId={}, status={}", taskId, result.getStatus());
+        return result;
     }
 
-    /**
-     * 多图生图回调处理
-     */
-    public void notifyMultiImageGenerateCallback(VideoAlgorithmCallbackResponse response, MultiImageGenerateCallbackData data, String callbackId) {
-        // 从callbackId中提取recordId
-        String[] parts = callbackId.split(":");
-        if (parts.length < 1) {
-            log.warn("callbackId格式错误: {}", callbackId);
-            return;
-        }
-
-        String recordId = parts[0];
-        String stepName = "multi_image_generate";
-
-        log.info("处理多图生图回调: recordId={}, fileUrls count={}",
-                recordId, data.getFileUrls() != null ? data.getFileUrls().size() : 0);
-
-        // 保存回调产物
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", response.getCode() == 0);
-        result.put("fileUrls", data.getFileUrls());
-        result.put("timestamp", System.currentTimeMillis());
-
-        // 存储到Redis（持久化）
-        callbackResultManager.saveResult(recordId, stepName, result);
-
-        // 存储到内存（用于CountDownLatch等待获取）
-        callbackResults.put(recordId + ":" + stepName, result);
-
-        // 唤醒等待
-        wakeupLatch(recordId, stepName);
-    }
-
-    /**
-     * 唇形同步回调处理
-     */
-    public void notifyLipSyncCallback(VideoAlgorithmCallbackResponse response, LipSyncCallbackData data, String callbackId) {
-        // 从callbackId中提取recordId
-        String[] parts = callbackId.split(":");
-        if (parts.length < 1) {
-            log.warn("callbackId格式错误: {}", callbackId);
-            return;
-        }
-
-        String recordId = parts[0];
-        String stepName = "lip_sync";
-
-        log.info("处理唇形同步回调: recordId={}, videoUrl={}, code={}, message={}",
-                recordId, data.getVideoUrl(), data.getCode(), data.getMessage());
-
-        // 保存回调产物
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", data.getCode() == 0);
-        result.put("videoUrl", data.getVideoUrl());
-        result.put("code", data.getCode());
-        result.put("message", data.getMessage());
-        result.put("timestamp", System.currentTimeMillis());
-
-        // 存储到Redis（持久化）
-        callbackResultManager.saveResult(recordId, stepName, result);
-
-        // 存储到内存（用于CountDownLatch等待获取）
-        callbackResults.put(recordId + ":" + stepName, result);
-
-        // 唤醒等待
-        wakeupLatch(recordId, stepName);
-    }
-
-    // ======================== 语音算法回调处理 ========================
+    // ======================== 语音算法回调处理（保留兼容）========================
 
     /**
      * 声音克隆回调处理
@@ -314,10 +256,10 @@ public class VideoProcessingService {
         wakeupLatch(recordId, stepName);
     }
 
-    // ======================== 等待回调方法 ========================
+    // ======================== 等待回调方法（保留兼容）========================
 
     /**
-     * 调用算法服务并等待回调（通用方法）
+     * 调用算法服务并等待回调（通用方法，用于语音服务）
      *
      * @param recordId      记录ID
      * @param stepName      步骤名称
@@ -386,13 +328,6 @@ public class VideoProcessingService {
     }
 
     /**
-     * 从recordId和stepName构建callbackId
-     */
-    private String buildCallbackId(String recordId, String stepName) {
-        return recordId + ":" + stepName;
-    }
-
-    /**
      * 更新记录状态
      */
     private void updateRecordStatus(String recordId, int status, int progress) {
@@ -435,40 +370,5 @@ public class VideoProcessingService {
                         .errorInfo(JsonUtil.toJson(errorMap))
                         .build()
         );
-    }
-
-    /**
-     * 更新任务执行详情
-     */
-    private void updateTaskExecution(String recordId, String stepName, String status, String resultUrl) {
-        Spring2026CreationRecord record = recordMapper.selectById(recordId);
-        if (record == null) {
-            return;
-        }
-
-        Map<String, Object> execution;
-        try {
-            if (record.getTaskExecution() != null) {
-                execution = JsonUtil.fromJson(record.getTaskExecution(), new TypeReference<Map<String, Object>>() {});
-            } else {
-                execution = new HashMap<>();
-                Map<String, Object> stepsMap = new HashMap<>();
-                execution.put("steps", stepsMap);
-            }
-        } catch (Exception e) {
-            execution = new HashMap<>();
-            Map<String, Object> stepsMap = new HashMap<>();
-            execution.put("steps", stepsMap);
-        }
-
-        Map<String, Object> steps = (Map<String, Object>) execution.get("steps");
-        Map<String, Object> stepInfo = new HashMap<>();
-        stepInfo.put("status", status);
-        stepInfo.put("result_url", resultUrl);
-        stepInfo.put("end_time", System.currentTimeMillis());
-        steps.put(stepName, stepInfo);
-
-        record.setTaskExecution(JsonUtil.toJson(execution));
-        recordMapper.updateById(record);
     }
 }

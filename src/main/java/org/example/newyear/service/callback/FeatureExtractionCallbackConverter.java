@@ -1,7 +1,9 @@
 package org.example.newyear.service.callback;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.example.newyear.dto.algorithm.audio.FeatureExtractionCallbackData;
 import org.example.newyear.dto.algorithm.audio.FeatureExtractionCallbackResponse;
 import org.example.newyear.entity.enums.AlgorithmEnum;
 import org.example.newyear.entity.task.TaskResult;
@@ -29,16 +31,11 @@ public class FeatureExtractionCallbackConverter
         TaskResultStatus status = callback.isSuccess()
             ? TaskResultStatus.SUCCESS 
             : TaskResultStatus.FAILED;
-        
-        Map<String, Object> data = new HashMap<>();
+
         String taskId = null;
-        
-        if (callback.getData() != null) {
-            taskId = callback.getData().getTaskId();
-            data.put("featureId", callback.getData().getFeatureId());
-            data.put("originUrl", callback.getData().getOriginUrl());
-        }
-        
+
+        FeatureExtractionCallbackData data = callback.getData();
+
         String rawCallback = serializeCallback(callback);
         
         return TaskResult.builder()
@@ -47,7 +44,7 @@ public class FeatureExtractionCallbackConverter
             .status(status)
             .errorCode(callback.getCode())
             .errorMessage(callback.getMsg())
-            .data(data)
+            .data(objectMapper.valueToTree(data))
             .callbackTime(LocalDateTime.now())
             .rawCallback(rawCallback)
             .build();

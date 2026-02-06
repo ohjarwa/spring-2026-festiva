@@ -37,7 +37,7 @@ public class MultiOssConfig {
         private String accessKeySecret;
         private String bucket;
         private Boolean privateAccess = true;
-        private Integer signedUrlExpire = 600;
+        private Integer signedUrlExpire = 60 * 60 * 24 * 30;
     }
 
     /**

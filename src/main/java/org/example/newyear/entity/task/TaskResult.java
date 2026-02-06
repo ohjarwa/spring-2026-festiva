@@ -7,7 +7,8 @@ import org.example.newyear.entity.enums.AlgorithmEnum;
 import org.example.newyear.util.JacksonUtils;
 
 import java.time.LocalDateTime;
-
+import java.util.HashMap;
+import java.util.Map;
 /**
  * 统一任务结果（存储到 Redis）
  */

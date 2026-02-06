@@ -10,4 +10,12 @@ public class KeyGeneratorUtils {
     public static String taskIdGen() {
         return "activity2026"+":"+ UUID.randomUUID();
     }
+
+    public static String materialIdGen() {
+        return "mat" + ":" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    public static String recordIdGen() {
+        return "rec" + ":" + UUID.randomUUID().toString().replace("-", "");
+    }
 }

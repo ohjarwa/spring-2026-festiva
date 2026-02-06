@@ -102,10 +102,9 @@ public class OssServiceImpl implements OssService {
      * 生成文件路径
      */
     private String generateFileKey(String originalFilename, String path) {
-        String extension = getFileExtension(originalFilename);
 
-        return String.format("spring2026/%s/%s%s",
-                path, originalFilename, extension);
+        return String.format("spring2026/%s/%s",
+                path, originalFilename);
     }
 
     /**

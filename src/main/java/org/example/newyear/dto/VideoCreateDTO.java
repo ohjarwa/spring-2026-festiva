@@ -30,13 +30,27 @@ public class VideoCreateDTO {
     @Data
     public static class MaterialsDTO {
         /**
-         * 图片URL列表
+         * 图片素材ID列表（优先使用materialId）
          */
+        private List<String> photoMaterialIds;
+
+        /**
+         * 音频素材ID列表（优先使用materialId）
+         */
+        private List<String> audioMaterialIds;
+
+        /**
+         * 图片URL列表（向后兼容，直接传URL）
+         * @deprecated 建议使用 photoMaterialIds
+         */
+        @Deprecated
         private List<String> photos;
 
         /**
-         * 音频URL列表
+         * 音频URL列表（向后兼容，直接传URL）
+         * @deprecated 建议使用 audioMaterialIds
          */
+        @Deprecated
         private List<String> audios;
     }
 }

@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.newyear.common.BusinessCode;
 import org.example.newyear.common.Constants;
 import org.example.newyear.entity.Spring2026User;
+import org.example.newyear.entity.Spring2026UserMaterial;
 import org.example.newyear.exception.BusinessException;
 import org.example.newyear.service.oss.OssService;
 import org.example.newyear.service.oss.OssUploadResult;
@@ -14,7 +15,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 上传服务
@@ -29,6 +29,7 @@ public class UploadService {
 
     private final UserService userService;
     private final OssService ossService;
+    private final UserMaterialService userMaterialService;
 
     /**
      * 上传图片
@@ -64,12 +65,22 @@ public class UploadService {
             // 使用 ossService，传入用户ID作为路径前缀
             OssUploadResult result = ossService.upload(file, userId + "/image");
 
+            // 5. 保存到素材表
+            Spring2026UserMaterial material = userMaterialService.saveMaterial(
+                    userId,
+                    "photo",
+                    result.getAccessUrl(),
+                    originalFilename,
+                    file.getSize()
+            );
+
             UploadResultVO vo = new UploadResultVO();
             vo.setUrl(result.getAccessUrl());
             vo.setName(originalFilename);
             vo.setSize(file.getSize());
+            vo.setMaterialId(material.getMaterialId());
 
-            log.info("上传图片成功: userId={}, url={}", userId, result.getAccessUrl());
+            log.info("上传图片成功: userId={}, url={}, materialId={}", userId, result.getAccessUrl(), material.getMaterialId());
             return vo;
 
         } catch (Exception e) {
@@ -112,12 +123,22 @@ public class UploadService {
             // 使用 ossService，传入用户ID作为路径前缀
             OssUploadResult result = ossService.upload(file, userId + "/audio");
 
+            // 5. 保存到素材表
+            Spring2026UserMaterial material = userMaterialService.saveMaterial(
+                    userId,
+                    "audio",
+                    result.getAccessUrl(),
+                    originalFilename,
+                    file.getSize()
+            );
+
             UploadResultVO vo = new UploadResultVO();
             vo.setUrl(result.getAccessUrl());
             vo.setName(originalFilename);
             vo.setSize(file.getSize());
+            vo.setMaterialId(material.getMaterialId());
 
-            log.info("上传音频成功: userId={}, url={}", userId, result.getAccessUrl());
+            log.info("上传音频成功: userId={}, url={}, materialId={}", userId, result.getAccessUrl(), material.getMaterialId());
             return vo;
 
         } catch (Exception e) {

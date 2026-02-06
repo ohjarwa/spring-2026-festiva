@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bytedeco.javacv.*;
 import org.example.newyear.service.oss.OssService;
+import org.example.newyear.service.oss.OssUploadResult;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -488,7 +489,7 @@ public class VideoProcessorUtil {
             FileMultipartFile fileAdapter = new FileMultipartFile(localFile);
 
             // 上传到OSS（指定账号类型）
-            var uploadResult = ossService.upload(fileAdapter, ossPath, accountType);
+            OssUploadResult uploadResult = ossService.upload(fileAdapter, ossPath, accountType);
 
             log.info("OSS上传成功[{}]: fileKey={}, accessUrl={}",
                     accountType, uploadResult.getFileKey(), uploadResult.getAccessUrl());

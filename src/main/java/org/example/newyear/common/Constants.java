@@ -83,7 +83,7 @@ public class Constants {
     /**
      * 文件大小限制（字节）
      */
-    public static final long MAX_IMAGE_SIZE = 10 * 1024 * 1024;  // 10MB
+    public static final long MAX_IMAGE_SIZE = 50 * 1024 * 1024;  // 50MB
 
-    public static final long MAX_AUDIO_SIZE = 20 * 1024 * 1024;  // 20MB
+    public static final long MAX_AUDIO_SIZE = 50 * 1024 * 1024;  // 50MB
 }

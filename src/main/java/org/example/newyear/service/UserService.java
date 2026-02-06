@@ -203,4 +203,100 @@ public class UserService {
         log.info("更新用户管理员级别: operatorId={}, targetId={}, newLevel={}",
                 operatorId, targetId, level);
     }
+
+    /**
+     * 封禁用户
+     *
+     * @param operatorId 操作者用户ID（管理员）
+     * @param targetId   目标用户ID
+     * @param banReason  封禁原因
+     * @param banDays    封禁天数（0表示永久封禁）
+     */
+    public void banUser(String operatorId, String targetId, String banReason, Integer banDays) {
+        // 检查操作者权限（必须是管理员）
+        AdminLevel operatorLevel = getUserAdminLevel(operatorId);
+        if (!operatorLevel.isAdmin()) {
+            throw new BusinessException(BusinessCode.ERROR_PERMISSION_DENIED,
+                    "只有管理员可以封禁用户");
+        }
+
+        // 查询目标用户
+        Spring2026User targetUser = userMapper.selectOne(
+                new LambdaQueryWrapper<Spring2026User>()
+                        .eq(Spring2026User::getUserId, targetId)
+                        .eq(Spring2026User::getActivityType, Constants.ACTIVITY_TYPE_SPRING_2026)
+        );
+
+        if (targetUser == null) {
+            throw new BusinessException(BusinessCode.ERROR_USER_NOT_FOUND);
+        }
+
+        // 检查目标用户是否也是管理员（不能封禁同级或更高级别的管理员）
+        AdminLevel targetLevel = AdminLevel.fromCode(targetUser.getAdminLevel());
+        if (targetLevel.getCode() >= operatorLevel.getCode()) {
+            throw new BusinessException(BusinessCode.ERROR_PERMISSION_DENIED,
+                    "不能封禁同级或更高级别的管理员");
+        }
+
+        // 计算封禁结束时间
+        LocalDateTime banEndTime = null;
+        if (banDays > 0) {
+            banEndTime = LocalDateTime.now().plusDays(banDays);
+        }
+
+        // 更新用户状态
+        userMapper.update(null,
+                new LambdaUpdateWrapper<Spring2026User>()
+                        .eq(Spring2026User::getUserId, targetId)
+                        .eq(Spring2026User::getActivityType, Constants.ACTIVITY_TYPE_SPRING_2026)
+                        .set(Spring2026User::getAccountStatus, 0)  // 封禁账号
+                        .set(Spring2026User::getCanUpload, 0)       // 禁止上传
+                        .set(Spring2026User::getCanCreateVideo, 0)  // 禁止创建视频
+                        .set(Spring2026User::getBanReason, banReason)
+                        .set(Spring2026User::getBanEndTime, banEndTime)
+        );
+
+        log.info("用户已封禁: operatorId={}, targetId={}, banReason={}, banDays={}, banEndTime={}",
+                operatorId, targetId, banReason, banDays, banEndTime);
+    }
+
+    /**
+     * 解封用户
+     *
+     * @param operatorId 操作者用户ID（管理员）
+     * @param targetId   目标用户ID
+     */
+    public void unbanUser(String operatorId, String targetId) {
+        // 检查操作者权限（必须是管理员）
+        AdminLevel operatorLevel = getUserAdminLevel(operatorId);
+        if (!operatorLevel.isAdmin()) {
+            throw new BusinessException(BusinessCode.ERROR_PERMISSION_DENIED,
+                    "只有管理员可以解封用户");
+        }
+
+        // 查询目标用户
+        Spring2026User targetUser = userMapper.selectOne(
+                new LambdaQueryWrapper<Spring2026User>()
+                        .eq(Spring2026User::getUserId, targetId)
+                        .eq(Spring2026User::getActivityType, Constants.ACTIVITY_TYPE_SPRING_2026)
+        );
+
+        if (targetUser == null) {
+            throw new BusinessException(BusinessCode.ERROR_USER_NOT_FOUND);
+        }
+
+        // 恢复用户状态
+        userMapper.update(null,
+                new LambdaUpdateWrapper<Spring2026User>()
+                        .eq(Spring2026User::getUserId, targetId)
+                        .eq(Spring2026User::getActivityType, Constants.ACTIVITY_TYPE_SPRING_2026)
+                        .set(Spring2026User::getAccountStatus, 1)     // 恢复账号
+                        .set(Spring2026User::getCanUpload, 1)         // 恢复上传
+                        .set(Spring2026User::getCanCreateVideo, 1)    // 恢复创建视频
+                        .set(Spring2026User::getBanReason, null)
+                        .set(Spring2026User::getBanEndTime, null)
+        );
+
+        log.info("用户已解封: operatorId={}, targetId={}", operatorId, targetId);
+    }
 }

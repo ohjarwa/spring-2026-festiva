@@ -121,10 +121,26 @@ public class AdminController {
         log.info("管理员封禁用户: adminId={}, targetId={}, banReason={}, banDays={}",
                 adminId, targetId, banReason, banDays);
 
-        // TODO: 实现封禁逻辑
-        // 1. 设置用户状态为禁用
-        // 2. 记录封禁原因和时间
-        // 3. 如果是临时封禁，记录解封时间
+        userService.banUser(adminId, targetId, banReason, banDays);
+
+        return Result.success();
+    }
+
+    /**
+     * 解封用户（需要管理员权限）
+     *
+     * @param request  HTTP请求
+     * @param targetId 目标用户ID
+     * @return 操作结果
+     */
+    @RequireAdmin
+    @PostMapping("/users/unban")
+    public Result<Void> unbanUser(HttpServletRequest request,
+                                  @RequestParam String targetId) {
+        String adminId = request.getHeader("X-User-UUID");
+        log.info("管理员解封用户: adminId={}, targetId={}", adminId, targetId);
+
+        userService.unbanUser(adminId, targetId);
 
         return Result.success();
     }
